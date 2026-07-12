@@ -31,10 +31,10 @@
   },
 
   "mounts": [
-    "source=claude-config,target=/home/vscode/.claude,type=volume"
+    "source=claude-code-config,target=/home/vscode/.claude,type=volume"
   ],
 
-  "postCreateCommand": "rustup component add rustfmt clippy",
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude && rustup component add rustfmt clippy",
 
   "remoteUser": "vscode"
 }
