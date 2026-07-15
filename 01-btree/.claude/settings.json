@@ -3,7 +3,8 @@
     "allow": [
       "WebSearch",
       "Bash(cargo test *)",
-      "Bash(cargo run *)"
+      "Bash(cargo run *)",
+      "Bash(cargo build *)"
     ]
   }
 }
