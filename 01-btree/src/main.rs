@@ -1,3 +1,7 @@
+use hello_rust::StorageEngine;
+
 fn main() {
-    println!("Hello, world!");
+    let mut engine = StorageEngine::new();
+    engine.put(b"hello", b"world");
+    println!("{:?}", engine.get(b"hello"));
 }
