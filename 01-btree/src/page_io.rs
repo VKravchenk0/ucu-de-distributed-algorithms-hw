@@ -1,4 +1,5 @@
 pub mod memory;
+pub mod mmap;
 
 /// Identifies a fixed-size page. `0` is reserved for the meta page and
 /// otherwise used as a "null" sentinel (e.g. "no free list yet").

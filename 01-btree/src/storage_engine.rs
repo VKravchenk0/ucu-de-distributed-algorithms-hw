@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use crate::node::Error;
 use crate::page_io::PageIo;
 use crate::page_io::memory::MemoryPageIo;
+use crate::page_io::mmap::MmapPageIo;
 use crate::store::Store;
 use crate::tree;
 
@@ -11,14 +14,57 @@ pub struct StorageEngine {
     store: Store<Box<dyn PageIo>>,
 }
 
+/// Why opening a store can fail: either the usual file-I/O reasons
+/// (permissions, missing parent directory, ...), or reopening an
+/// existing file with a `page_size` that doesn't match what it was
+/// created with (R3.4).
+#[derive(Debug)]
+pub enum OpenError {
+    Io(std::io::Error),
+    Store(crate::store::OpenError),
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenError::Io(e) => write!(f, "{e}"),
+            OpenError::Store(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for OpenError {}
+
+impl From<std::io::Error> for OpenError {
+    fn from(e: std::io::Error) -> Self {
+        OpenError::Io(e)
+    }
+}
+
+impl From<crate::store::OpenError> for OpenError {
+    fn from(e: crate::store::OpenError) -> Self {
+        OpenError::Store(e)
+    }
+}
+
 impl StorageEngine {
     /// An in-memory store (R3.5, R7.1) — no persistence, useful for
-    /// tests or ephemeral use.
+    /// tests or ephemeral use. Always succeeds: a fresh `MemoryPageIo`
+    /// can never hit the page-size-mismatch case `open` guards against.
     pub fn in_memory(page_size: usize) -> Self {
         let io: Box<dyn PageIo> = Box::new(MemoryPageIo::new(page_size));
         StorageEngine {
-            store: Store::open_or_create(io),
+            store: Store::open_or_create(io).expect("a fresh in-memory backend never mismatches"),
         }
+    }
+
+    /// Opens (or creates) a real, mmap-backed file at `path` (R3.1-R3.4).
+    /// Reopening an existing file created with a different `page_size`
+    /// is an error rather than silently discarding its data.
+    pub fn open(path: impl AsRef<Path>, page_size: usize) -> Result<Self, OpenError> {
+        let io: Box<dyn PageIo> = Box::new(MmapPageIo::open(path, page_size)?);
+        let store = Store::open_or_create(io)?;
+        Ok(StorageEngine { store })
     }
 
     /// Inserts `key`/`val`, or overwrites `key`'s value if it already

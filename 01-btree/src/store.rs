@@ -7,6 +7,27 @@ use crate::page_io::{PageId, PageIo};
 
 const INITIAL_ROOT_PAGE_ID: PageId = 1;
 
+#[derive(Debug)]
+pub enum OpenError {
+    PageSizeMismatch { requested: usize, persisted: usize },
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenError::PageSizeMismatch {
+                requested,
+                persisted,
+            } => write!(
+                f,
+                "requested page size {requested} doesn't match this store's page size {persisted}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for OpenError {}
+
 struct WriterState {
     next_page_id: u64,
     free_list: Vec<PageId>,
@@ -29,22 +50,36 @@ impl<IO: PageIo> Store<IO> {
     /// leaf root"). Works identically for a brand-new backend and a
     /// real reopened file — the memory backend goes through the exact
     /// same path so this logic is exercised long before mmap exists.
-    pub fn open_or_create(io: IO) -> Self {
+    ///
+    /// A backend with no valid meta page at all (fresh/empty) is always
+    /// safe to bootstrap. A backend with a *valid* meta page whose
+    /// page_size disagrees with the caller's request is a real error,
+    /// not a fresh backend — silently re-bootstrapping there would
+    /// clobber existing data instead of reporting the mismatch (R3.4).
+    pub fn open_or_create(io: IO) -> Result<Self, OpenError> {
         let page_size = io.page_size();
-        let meta =
-            Meta::from_bytes(&io.read_page(META_PAGE_ID)).filter(|m| m.page_size == page_size);
+        let meta = Meta::from_bytes(&io.read_page(META_PAGE_ID));
 
-        let meta = meta.unwrap_or_else(|| {
-            let mut root = Node::new(page_size);
-            root.set_header(NODE_LEAF, 0);
-            io.write_page(INITIAL_ROOT_PAGE_ID, &root.into_bytes(page_size));
-            let m = Meta::new(page_size, INITIAL_ROOT_PAGE_ID, INITIAL_ROOT_PAGE_ID + 1);
-            io.write_page(META_PAGE_ID, &m.to_bytes(page_size));
-            io.sync();
-            m
-        });
+        let meta = match meta {
+            Some(m) if m.page_size == page_size => m,
+            Some(m) => {
+                return Err(OpenError::PageSizeMismatch {
+                    requested: page_size,
+                    persisted: m.page_size,
+                });
+            }
+            None => {
+                let mut root = Node::new(page_size);
+                root.set_header(NODE_LEAF, 0);
+                io.write_page(INITIAL_ROOT_PAGE_ID, &root.into_bytes(page_size));
+                let m = Meta::new(page_size, INITIAL_ROOT_PAGE_ID, INITIAL_ROOT_PAGE_ID + 1);
+                io.write_page(META_PAGE_ID, &m.to_bytes(page_size));
+                io.sync();
+                m
+            }
+        };
 
-        Store {
+        Ok(Store {
             root: AtomicU64::new(meta.root_id),
             readers: AtomicUsize::new(0),
             write_lock: Mutex::new(WriterState {
@@ -53,7 +88,7 @@ impl<IO: PageIo> Store<IO> {
                 pending_free: Vec::new(),
             }),
             io,
-        }
+        })
     }
 
     pub fn enter_read(&self) -> ReadGuard<'_, IO> {
@@ -203,7 +238,7 @@ mod tests {
 
     #[test]
     fn open_or_create_bootstraps_empty_leaf_root() {
-        let store = Store::open_or_create(MemoryPageIo::new(4096));
+        let store = Store::open_or_create(MemoryPageIo::new(4096)).unwrap();
         let view = store.enter_read();
         let root = view.read(view.root());
         assert_eq!(root.btype(), NODE_LEAF);
@@ -213,7 +248,7 @@ mod tests {
     #[test]
     fn reopening_the_same_backend_recovers_root_and_data() {
         let io = MemoryPageIo::new(4096);
-        let store = Store::open_or_create(io.reopen());
+        let store = Store::open_or_create(io.reopen()).unwrap();
         for i in 0..20 {
             let mut txn = store.begin_write();
             tree::put(&mut txn, format!("k{i}").as_bytes(), b"v").unwrap();
@@ -221,7 +256,7 @@ mod tests {
 
         // simulate closing and reopening: a fresh Store wrapping the
         // same underlying "disk".
-        let reopened = Store::open_or_create(io.reopen());
+        let reopened = Store::open_or_create(io.reopen()).unwrap();
         let view = reopened.enter_read();
         for i in 0..20 {
             assert_eq!(
@@ -233,7 +268,7 @@ mod tests {
 
     #[test]
     fn repeated_overwrites_reuse_pages_via_free_list() {
-        let store = Store::open_or_create(MemoryPageIo::new(4096));
+        let store = Store::open_or_create(MemoryPageIo::new(4096)).unwrap();
         let keys: Vec<String> = (0..50).map(|i| format!("key{i:03}")).collect();
 
         for k in &keys {

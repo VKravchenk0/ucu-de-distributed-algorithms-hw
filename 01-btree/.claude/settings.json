@@ -8,6 +8,9 @@
       "Bash(cargo clippy *)",
       "Bash(rustc --version)",
       "Bash(cargo fmt *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }
