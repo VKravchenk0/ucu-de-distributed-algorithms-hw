@@ -158,6 +158,93 @@ impl Node {
         let pos = (HEADER + 8 * self.nkeys() + 2 * (idx - 1)) as usize;
         self[pos..pos + 2].copy_from_slice(&val.to_le_bytes());
     }
+
+    fn type_name(&self) -> &'static str {
+        match self.btype() {
+            NODE_LEAF => "LEAF",
+            NODE_INTERNAL => "INTERNAL",
+            _ => "UNKNOWN",
+        }
+    }
+
+    /// Dumps every byte of the page as a hex/ascii gutter, 16 bytes per
+    /// line (like `xxd`) — no interpretation, just the raw contents.
+    pub fn print_raw(&self) {
+        for (i, chunk) in self.0.chunks(16).enumerate() {
+            let offset = i * 16;
+            let mut hex = String::with_capacity(48);
+            for b in chunk {
+                hex.push_str(&format!("{b:02x} "));
+            }
+            let ascii: String = chunk
+                .iter()
+                .map(|&b| {
+                    if b.is_ascii_graphic() || b == b' ' {
+                        b as char
+                    } else {
+                        '.'
+                    }
+                })
+                .collect();
+            println!("  {offset:06x}  {hex:<48}|{ascii}|");
+        }
+    }
+
+    /// Dumps the parsed layout with an explicit byte range for each
+    /// section (header/pointers/offsets/entries/unused), mirroring
+    /// DESIGN.md's node-page table. Internal nodes show `key -> child
+    /// ptr`; leaves show `key -> val`.
+    pub fn print_pretty(&self) {
+        let nkeys = self.nkeys();
+        let used = self.nbytes();
+        let total = self.0.len();
+        println!(
+            "  type={} nkeys={nkeys} used={used}B page={total}B unused={}B",
+            self.type_name(),
+            total.saturating_sub(used as usize)
+        );
+
+        println!(
+            "  |- header    [0..{HEADER})            type={}({}) nkeys={nkeys}",
+            self.btype(),
+            self.type_name()
+        );
+
+        let ptr_start = HEADER;
+        let ptr_end = HEADER + 8 * nkeys;
+        let ptrs: String = (0..nkeys)
+            .map(|i| format!("[{i}]={} ", self.get_ptr(i)))
+            .collect();
+        println!("  |- pointers  [{ptr_start}..{ptr_end}){:>8}{ptrs}", "");
+
+        let off_start = ptr_end;
+        let off_end = off_start + 2 * nkeys;
+        let offs: String = (1..nkeys)
+            .map(|i| format!("[{i}]={} ", self.get_offset(i)))
+            .collect();
+        println!("  |- offsets   [{off_start}..{off_end}){:>8}{offs}", "");
+
+        println!("  |- entries   [{off_end}..{used})");
+        for i in 0..nkeys {
+            let start = self.kv_pos(i);
+            let end = self.kv_pos(i + 1);
+            let key = String::from_utf8_lossy(self.get_key(i));
+            if self.btype() == NODE_INTERNAL {
+                println!(
+                    "  |    [{i}] [{start}..{end})  key={key:?} -> child_ptr={}",
+                    self.get_ptr(i)
+                );
+            } else {
+                let val = String::from_utf8_lossy(self.get_val(i));
+                println!("  |    [{i}] [{start}..{end})  key={key:?} -> val={val:?}");
+            }
+        }
+
+        println!(
+            "  `- unused    [{used}..{total})  {}B zero-padded",
+            total.saturating_sub(used as usize)
+        );
+    }
 }
 
 pub fn append_kv(new: &mut Node, idx: u16, ptr: u64, key: &[u8], val: &[u8]) {

@@ -79,6 +79,18 @@ impl StorageEngine {
         let view = self.store.enter_read();
         tree::get(&view, key)
     }
+
+    /// Pretty-prints every page in the tree to the console, annotated
+    /// with page boundaries and the byte ranges of each node section
+    /// (header/pointers/offsets/entries/unused).
+    pub fn print_tree(&self) {
+        crate::dump::print_tree(&self.store.enter_read());
+    }
+
+    /// Dumps every page in the tree to the console as raw bytes.
+    pub fn print_bytes(&self) {
+        crate::dump::print_bytes(&self.store.enter_read());
+    }
 }
 
 #[cfg(test)]
@@ -90,7 +102,9 @@ mod tests {
     fn put_and_get_round_trip() {
         let store = StorageEngine::in_memory(4096);
         store.put(b"hello", b"world").unwrap();
+        store.print_tree();
         store.put(b"foo", b"bar").unwrap();
+        store.print_tree();
         assert_eq!(store.get(b"hello"), Some(b"world".to_vec()));
         assert_eq!(store.get(b"foo"), Some(b"bar".to_vec()));
     }
@@ -99,7 +113,9 @@ mod tests {
     fn put_upserts_existing_key() {
         let store = StorageEngine::in_memory(4096);
         store.put(b"key", b"v1").unwrap();
+        store.print_tree();
         store.put(b"key", b"v2").unwrap();
+        store.print_tree();
         assert_eq!(store.get(b"key"), Some(b"v2".to_vec()));
     }
 
@@ -107,6 +123,7 @@ mod tests {
     fn get_missing_key_returns_none() {
         let store = StorageEngine::in_memory(4096);
         store.put(b"a", b"1").unwrap();
+        store.print_tree();
         assert_eq!(store.get(b"missing"), None);
     }
 
@@ -119,6 +136,7 @@ mod tests {
     #[test]
     fn bulk_insert_forces_leaf_split_and_stays_lookupable() {
         let store = StorageEngine::in_memory(4096);
+        store.print_tree();
         for i in 0..500 {
             store
                 .put(
@@ -127,6 +145,7 @@ mod tests {
                 )
                 .unwrap();
         }
+        store.print_tree();
         for i in 0..500 {
             assert_eq!(
                 store.get(format!("key{i:05}").as_bytes()),
@@ -141,9 +160,11 @@ mod tests {
         // splits) and multi-level tree growth without needing a huge
         // key count (R1.6).
         let store = StorageEngine::in_memory(256);
+        store.print_tree();
         for i in 0..300 {
             store.put(format!("k{i:04}").as_bytes(), b"v").unwrap();
         }
+        store.print_tree();
         for i in 0..300 {
             assert_eq!(
                 store.get(format!("k{i:04}").as_bytes()),
@@ -160,6 +181,7 @@ mod tests {
         let store = StorageEngine::in_memory(page_size);
         let key_at_max = vec![b'k'; max];
         assert!(store.put(&key_at_max, b"").is_ok());
+        store.print_tree();
         assert_eq!(store.get(&key_at_max), Some(Vec::new()));
 
         let key_over_max = vec![b'k'; max + 1];

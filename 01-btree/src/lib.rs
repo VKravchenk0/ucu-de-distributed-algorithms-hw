@@ -1,3 +1,4 @@
+mod dump;
 mod meta;
 mod mmap_ffi;
 mod node;

@@ -18,6 +18,7 @@ fn put_persists_across_close_and_reopen() {
     let tmp = TempPath::new("durability");
     {
         let store = StorageEngine::open(tmp.as_path(), 4096).unwrap();
+        store.print_tree();
         for i in 0..50 {
             store
                 .put(
@@ -26,6 +27,7 @@ fn put_persists_across_close_and_reopen() {
                 )
                 .unwrap();
         }
+        store.print_tree();
     } // dropped: mmap unmapped, file closed
 
     let reopened = StorageEngine::open(tmp.as_path(), 4096).unwrap();
@@ -44,11 +46,13 @@ fn large_split_forcing_dataset_survives_reopen() {
         // A small page size forces many splits (and multi-level growth)
         // within a manageable key count.
         let store = StorageEngine::open(tmp.as_path(), 256).unwrap();
+        store.print_tree();
         for i in 0..300 {
             store
                 .put(format!("k{i:04}").as_bytes(), format!("v{i}").as_bytes())
                 .unwrap();
         }
+        store.print_tree();
     }
 
     let reopened = StorageEngine::open(tmp.as_path(), 256).unwrap();
@@ -66,6 +70,7 @@ fn reopening_with_a_mismatched_page_size_errors_without_touching_data() {
     {
         let store = StorageEngine::open(tmp.as_path(), 4096).unwrap();
         store.put(b"a", b"1").unwrap();
+        store.print_tree();
     }
 
     assert!(StorageEngine::open(tmp.as_path(), 8192).is_err());
@@ -82,7 +87,9 @@ fn upsert_persists_the_latest_value_across_reopen() {
     {
         let store = StorageEngine::open(tmp.as_path(), 4096).unwrap();
         store.put(b"key", b"v1").unwrap();
+        store.print_tree();
         store.put(b"key", b"v2").unwrap();
+        store.print_tree();
     }
 
     let reopened = StorageEngine::open(tmp.as_path(), 4096).unwrap();

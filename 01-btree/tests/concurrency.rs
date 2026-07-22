@@ -18,9 +18,11 @@ fn repeated_overwrites_keep_file_size_bounded() {
     let store = StorageEngine::open(tmp.as_path(), 4096).unwrap();
 
     let keys: Vec<String> = (0..50).map(|i| format!("key{i:03}")).collect();
+    store.print_tree();
     for k in &keys {
         store.put(k.as_bytes(), b"v0").unwrap();
     }
+    store.print_tree();
     let baseline = std::fs::metadata(tmp.as_path()).unwrap().len();
 
     for pass in 0..30 {
@@ -30,6 +32,7 @@ fn repeated_overwrites_keep_file_size_bounded() {
                 .unwrap();
         }
     }
+    store.print_tree();
     let after_many_passes = std::fs::metadata(tmp.as_path()).unwrap().len();
 
     assert!(
@@ -52,6 +55,7 @@ fn concurrent_readers_never_see_torn_writes_and_are_not_blocked() {
     for k in keys {
         store.put(k, b"v0").unwrap();
     }
+    store.print_tree();
 
     let stop = Arc::new(AtomicBool::new(false));
 
