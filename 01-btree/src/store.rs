@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-use crate::meta::{META_PAGE_ID, Meta};
+use crate::header::{HEADER_PAGE_ID, Header};
 use crate::node::{NODE_LEAF, Node};
 use crate::page_io::{PageId, PageIo};
 
@@ -45,45 +45,45 @@ pub struct Store<IO: PageIo> {
 }
 
 impl<IO: PageIo> Store<IO> {
-    /// Reads (and validates) the meta page, or bootstraps a fresh store
+    /// Reads (and validates) the header page, or bootstraps a fresh store
     /// with an empty leaf root (R3.4: "a new file starts with an empty
     /// leaf root"). Works identically for a brand-new backend and a
     /// real reopened file — the memory backend goes through the exact
     /// same path so this logic is exercised long before mmap exists.
     ///
-    /// A backend with no valid meta page at all (fresh/empty) is always
-    /// safe to bootstrap. A backend with a *valid* meta page whose
+    /// A backend with no valid header page at all (fresh/empty) is always
+    /// safe to bootstrap. A backend with a *valid* header page whose
     /// page_size disagrees with the caller's request is a real error,
     /// not a fresh backend — silently re-bootstrapping there would
     /// clobber existing data instead of reporting the mismatch (R3.4).
     pub fn open_or_create(io: IO) -> Result<Self, OpenError> {
         let page_size = io.page_size();
-        let meta = Meta::from_bytes(&io.read_page(META_PAGE_ID));
+        let header = Header::from_bytes(&io.read_page(HEADER_PAGE_ID));
 
-        let meta = match meta {
-            Some(m) if m.page_size == page_size => m,
-            Some(m) => {
+        let header = match header {
+            Some(h) if h.page_size == page_size => h,
+            Some(h) => {
                 return Err(OpenError::PageSizeMismatch {
                     requested: page_size,
-                    persisted: m.page_size,
+                    persisted: h.page_size,
                 });
             }
             None => {
                 let mut root = Node::new(page_size);
                 root.set_header(NODE_LEAF, 0);
                 io.write_page(INITIAL_ROOT_PAGE_ID, &root.into_bytes(page_size));
-                let m = Meta::new(page_size, INITIAL_ROOT_PAGE_ID, INITIAL_ROOT_PAGE_ID + 1);
-                io.write_page(META_PAGE_ID, &m.to_bytes(page_size));
+                let h = Header::new(page_size, INITIAL_ROOT_PAGE_ID, INITIAL_ROOT_PAGE_ID + 1);
+                io.write_page(HEADER_PAGE_ID, &h.to_bytes(page_size));
                 io.sync();
-                m
+                h
             }
         };
 
         Ok(Store {
-            root: AtomicU64::new(meta.root_id),
+            root: AtomicU64::new(header.root_id),
             readers: AtomicUsize::new(0),
             write_lock: Mutex::new(WriterState {
-                next_page_id: meta.next_page_id,
+                next_page_id: header.next_page_id,
                 free_list: Vec::new(),
                 pending_free: Vec::new(),
             }),
@@ -215,7 +215,7 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
             self.guard.free_list.append(&mut promoted);
         }
 
-        let meta = Meta {
+        let header = Header {
             page_size: self.page_size(),
             root_id: new_root,
             next_page_id: self.guard.next_page_id,
@@ -224,7 +224,7 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
         };
         self.store
             .io
-            .write_page(META_PAGE_ID, &meta.to_bytes(self.page_size()));
+            .write_page(HEADER_PAGE_ID, &header.to_bytes(self.page_size()));
         self.store.io.sync();
         self.store.root.store(new_root, Ordering::SeqCst);
     }

@@ -44,7 +44,7 @@ impl MmapPageIo {
             .open(path)?;
         let current_len = file.metadata()?.len();
 
-        // Page 0 (meta) must always be addressable, even for a brand-new
+        // Page 0 (header) must always be addressable, even for a brand-new
         // empty file, so the initial commit covers at least one page.
         let initial_len = current_len.max(page_size as u64);
         if initial_len != current_len {

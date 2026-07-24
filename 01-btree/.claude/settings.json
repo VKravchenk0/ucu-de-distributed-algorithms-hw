@@ -10,7 +10,8 @@
       "Bash(cargo fmt *)",
       "Read(//workspaces/ucu-de-distributed-algorithms-hw/**)",
       "Bash(git -C /workspaces/ucu-de-distributed-algorithms-hw/01-btree log --oneline -15)",
-      "Bash(git -C /workspaces/ucu-de-distributed-algorithms-hw/01-btree status)"
+      "Bash(git -C /workspaces/ucu-de-distributed-algorithms-hw/01-btree status)",
+      "Bash(git -C /workspaces/ucu-de-distributed-algorithms-hw/01-btree mv src/meta.rs src/header.rs)"
     ],
     "additionalDirectories": [
       "/tmp"
