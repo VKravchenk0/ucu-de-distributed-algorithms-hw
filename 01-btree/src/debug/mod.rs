@@ -1,6 +1,6 @@
-use crate::node::NODE_INTERNAL;
-use crate::page_io::{PageId, PageIo};
-use crate::store::ReadGuard;
+use crate::io::{PageId, PageIo};
+use crate::page::node::NODE_INTERNAL;
+use crate::storage::store::ReadGuard;
 
 /// Recursively prints every page reachable from the tree rooted at
 /// `view.root()`, in pre-order (a node before its children) so the

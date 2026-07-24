@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-use crate::header::{HEADER_PAGE_ID, Header};
-use crate::node::{NODE_LEAF, Node};
-use crate::page_io::{PageId, PageIo};
+use crate::io::{PageId, PageIo};
+use crate::page::header::{HEADER_PAGE_ID, Header};
+use crate::page::node::{NODE_LEAF, Node};
 
 const INITIAL_ROOT_PAGE_ID: PageId = 1;
 
@@ -233,8 +233,8 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page_io::memory::MemoryPageIo;
-    use crate::tree;
+    use crate::io::memory::MemoryPageIo;
+    use crate::storage::tree;
 
     #[test]
     fn open_or_create_bootstraps_empty_leaf_root() {
@@ -249,12 +249,12 @@ mod tests {
     fn reopening_the_same_backend_recovers_root_and_data() {
         let io = MemoryPageIo::new(4096);
         let store = Store::open_or_create(io.reopen()).unwrap();
-        crate::dump::print_tree(&store.enter_read());
+        crate::debug::print_tree(&store.enter_read());
         for i in 0..20 {
             let mut txn = store.begin_write();
             tree::put(&mut txn, format!("k{i}").as_bytes(), b"v").unwrap();
         }
-        crate::dump::print_tree(&store.enter_read());
+        crate::debug::print_tree(&store.enter_read());
 
         // simulate closing and reopening: a fresh Store wrapping the
         // same underlying "disk".
@@ -273,12 +273,12 @@ mod tests {
         let store = Store::open_or_create(MemoryPageIo::new(4096)).unwrap();
         let keys: Vec<String> = (0..50).map(|i| format!("key{i:03}")).collect();
 
-        crate::dump::print_tree(&store.enter_read());
+        crate::debug::print_tree(&store.enter_read());
         for k in &keys {
             let mut txn = store.begin_write();
             tree::put(&mut txn, k.as_bytes(), b"v1").unwrap();
         }
-        crate::dump::print_tree(&store.enter_read());
+        crate::debug::print_tree(&store.enter_read());
         let pages_after_first_pass = store.allocated_pages();
         assert!(
             store.free_list_len() > 0,
@@ -291,7 +291,7 @@ mod tests {
                 tree::put(&mut txn, k.as_bytes(), b"v2").unwrap();
             }
         }
-        crate::dump::print_tree(&store.enter_read());
+        crate::debug::print_tree(&store.enter_read());
         let pages_after_many_passes = store.allocated_pages();
 
         assert!(

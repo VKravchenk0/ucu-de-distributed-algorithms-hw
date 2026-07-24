@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
 
-use crate::node::{
+use crate::io::PageIo;
+use crate::page::node::{
     Error, NODE_INTERNAL, NODE_LEAF, Node, append_kv, check_limits, leaf_insert, leaf_update,
     split3,
 };
-use crate::page_io::PageIo;
-use crate::store::{ReadGuard, WriteTxn};
+use crate::storage::store::{ReadGuard, WriteTxn};
 
 /// Binary search (R1.5) for the largest index whose key is <= `key`. An
 /// exact match returns immediately. Keys aren't a plain contiguous
@@ -67,14 +67,14 @@ fn replace_kid_n<IO: PageIo>(
 ) {
     let inc = kids.len() as u16;
     new.set_header(NODE_INTERNAL, old.nkeys() + inc - 1);
-    crate::node::append_range(new, old, 0, 0, idx);
+    crate::page::node::append_range(new, old, 0, 0, idx);
     for (i, kid) in kids.iter().enumerate() {
         let key0 = kid.get_key(0).to_vec();
         let ptr = txn.alloc();
         txn.write(ptr, kid.clone());
         append_kv(new, idx + i as u16, ptr, &key0, &[]);
     }
-    crate::node::append_range(new, old, idx + inc, idx + 1, old.nkeys() - (idx + 1));
+    crate::page::node::append_range(new, old, idx + inc, idx + 1, old.nkeys() - (idx + 1));
 }
 
 /// put() (R1.2, R1.4): insert or upsert a key, copying every node on

@@ -1,11 +1,11 @@
 use std::path::Path;
 
-use crate::node::Error;
-use crate::page_io::PageIo;
-use crate::page_io::memory::MemoryPageIo;
-use crate::page_io::mmap::MmapPageIo;
-use crate::store::Store;
-use crate::tree;
+use crate::io::PageIo;
+use crate::io::memory::MemoryPageIo;
+use crate::io::mmap::MmapPageIo;
+use crate::page::node::Error;
+use crate::storage::store::Store;
+use crate::storage::tree;
 
 /// A persistent, ordered key-value store backed by a copy-on-write
 /// B+Tree (task.md). The only public operations are `put`/`get` (R1.2);
@@ -21,7 +21,7 @@ pub struct StorageEngine {
 #[derive(Debug)]
 pub enum OpenError {
     Io(std::io::Error),
-    Store(crate::store::OpenError),
+    Store(crate::storage::store::OpenError),
 }
 
 impl std::fmt::Display for OpenError {
@@ -41,8 +41,8 @@ impl From<std::io::Error> for OpenError {
     }
 }
 
-impl From<crate::store::OpenError> for OpenError {
-    fn from(e: crate::store::OpenError) -> Self {
+impl From<crate::storage::store::OpenError> for OpenError {
+    fn from(e: crate::storage::store::OpenError) -> Self {
         OpenError::Store(e)
     }
 }
@@ -84,19 +84,19 @@ impl StorageEngine {
     /// with page boundaries and the byte ranges of each node section
     /// (header/pointers/offsets/entries/unused).
     pub fn print_tree(&self) {
-        crate::dump::print_tree(&self.store.enter_read());
+        crate::debug::print_tree(&self.store.enter_read());
     }
 
     /// Dumps every page in the tree to the console as raw bytes.
     pub fn print_bytes(&self) {
-        crate::dump::print_bytes(&self.store.enter_read());
+        crate::debug::print_bytes(&self.store.enter_read());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node;
+    use crate::page::node;
 
     #[test]
     fn put_and_get_round_trip() {

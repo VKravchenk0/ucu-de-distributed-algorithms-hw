@@ -1,4 +1,4 @@
-use crate::page_io::PageId;
+use crate::io::PageId;
 
 const MAGIC: [u8; 8] = *b"HWBTREE1";
 const VERSION: u32 = 1;

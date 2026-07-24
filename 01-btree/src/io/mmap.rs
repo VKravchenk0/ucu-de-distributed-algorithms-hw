@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{PageId, PageIo};
-use crate::mmap_ffi::RawMmap;
+use crate::ffi::RawMmap;
 
 /// Reserved virtual address space, chosen once at open time. The mapping
 /// is never remapped/resized for the store's lifetime (R3.2) — growth

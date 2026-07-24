@@ -1,11 +1,8 @@
-mod dump;
-mod header;
-mod mmap_ffi;
-mod node;
-mod page_io;
-mod storage_engine;
-mod store;
-mod tree;
+mod debug;
+mod ffi;
+mod io;
+mod page;
+mod storage;
 
-pub use node::Error;
-pub use storage_engine::{OpenError, StorageEngine};
+pub use page::node::Error;
+pub use storage::engine::{OpenError, StorageEngine};
