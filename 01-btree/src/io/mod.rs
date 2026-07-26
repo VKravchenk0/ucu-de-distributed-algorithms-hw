@@ -1,5 +1,5 @@
-pub mod memory;
-pub mod mmap;
+pub mod in_memory_backend;
+pub mod file_backend;
 
 /// Identifies a fixed-size page. `0` is reserved for the header page and
 /// otherwise used as a "null" sentinel (e.g. "no free list yet").

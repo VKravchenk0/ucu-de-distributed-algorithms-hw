@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use crate::io::PageIo;
-use crate::io::memory::MemoryPageIo;
-use crate::io::mmap::MmapPageIo;
+use crate::io::in_memory_backend::MemoryPageIo;
+use crate::io::file_backend::MmapPageIo;
 use crate::page::node::Error;
 use crate::storage::store::Store;
 use crate::storage::tree;

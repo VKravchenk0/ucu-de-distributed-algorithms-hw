@@ -233,7 +233,7 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::memory::MemoryPageIo;
+    use crate::io::in_memory_backend::MemoryPageIo;
     use crate::storage::tree;
 
     #[test]
