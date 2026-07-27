@@ -1,5 +1,4 @@
 mod debug;
-mod ffi;
 mod io;
 mod page;
 mod storage;

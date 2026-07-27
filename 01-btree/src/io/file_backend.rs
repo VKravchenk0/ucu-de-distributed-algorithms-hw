@@ -3,8 +3,9 @@ use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use memmap2::{MmapOptions, MmapRaw};
+
 use super::{PageId, PageIo};
-use crate::ffi::RawMmap;
 
 /// Reserved virtual address space, chosen once at open time. The mapping
 /// is never remapped/resized for the store's lifetime (R3.2) — growth
@@ -17,7 +18,7 @@ const DEFAULT_MAX_SIZE: u64 = 1 << 30; // 1 GiB
 /// cached via `mmap`.
 pub struct MmapPageIo {
     file: File,
-    mmap: RawMmap,
+    mmap: MmapRaw,
     page_size: usize,
     /// How much of the reserved mapping is actually backed by the file
     /// so far (`ftruncate`'d). Only ever grows; writes past this extend
@@ -52,7 +53,7 @@ impl MmapPageIo {
         }
 
         let mmap_len = max_size.max(initial_len) as usize;
-        let mmap = RawMmap::new(&file, mmap_len)?;
+        let mmap = MmapOptions::new().len(mmap_len).map_raw(&file)?;
 
         Ok(MmapPageIo {
             file,
@@ -75,6 +76,43 @@ impl MmapPageIo {
             self.committed_len.store(needed, Ordering::SeqCst);
         }
     }
+
+    /// Copies `len` bytes starting at `offset` out into an owned buffer.
+    fn read_at(&self, offset: usize, len: usize) -> Vec<u8> {
+        assert!(
+            offset + len <= self.mmap.len(),
+            "read_at out of mapped range"
+        );
+        let mut buf = vec![0u8; len];
+        // SAFETY: bounds-checked above; `offset..offset+len` is within
+        // the mapping, and this is a plain byte copy through raw
+        // pointers, never forming a `&[u8]`/`&mut [u8]` over the mapping.
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.mmap.as_ptr().add(offset), buf.as_mut_ptr(), len);
+        }
+        buf
+    }
+
+    /// Copies `bytes` in, starting at `offset`.
+    fn write_at(&self, offset: usize, bytes: &[u8]) {
+        assert!(
+            offset + bytes.len() <= self.mmap.len(),
+            "write_at out of mapped range"
+        );
+        // SAFETY: bounds-checked above; concurrent calls here can't race
+        // because only the single serialized writer ever calls it, and a
+        // concurrent `read_at` never targets a page a `write_at` could
+        // still be touching (copy-on-write: a page is written once, then
+        // never again in place; readers only ever reach pages via an
+        // already-published, immutable root).
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                self.mmap.as_mut_ptr().add(offset),
+                bytes.len(),
+            );
+        }
+    }
 }
 
 impl PageIo for MmapPageIo {
@@ -84,17 +122,17 @@ impl PageIo for MmapPageIo {
 
     fn read_page(&self, id: PageId) -> Vec<u8> {
         let offset = id as usize * self.page_size;
-        self.mmap.read_at(offset, self.page_size)
+        self.read_at(offset, self.page_size)
     }
 
     fn write_page(&self, id: PageId, bytes: &[u8]) {
         debug_assert_eq!(bytes.len(), self.page_size);
         let offset = id as usize * self.page_size;
         self.ensure_committed((offset + self.page_size) as u64);
-        self.mmap.write_at(offset, bytes);
+        self.write_at(offset, bytes);
     }
 
     fn sync(&self) {
-        self.mmap.sync().expect("msync failed");
+        self.mmap.flush().expect("msync failed");
     }
 }

@@ -29,8 +29,7 @@
 | `src/storage/mod.rs` | Ре-експорт `engine`/`store`/`tree`. |
 | `src/io/mod.rs` | Трейт `PageIo` (R3.5) - точка підміни бекенду, і тип `PageId`. |
 | `src/io/in_memory_backend.rs` | `MemoryPageIo` - in-memory бекенд поверх `HashMap` |
-| `src/io/file_backend.rs` | `MmapPageIo` - файловий бекенд |
-| `src/ffi/mod.rs` | TODO: знайти бібліотеку !!!!!! Foreign Function Interface - cирі `unsafe extern "C"` біндинги на `mmap`/`munmap`/`msync` (стандартна бібліотека rust їх не має) і `RawMmap` - обгортка з фіксованою адресою мапінгу на весь час життя стора. Весь `unsafe` для реального бекенду зібраний тут і в `io/mmap.rs`, більше ніде. |
+| `src/io/file_backend.rs` | `MmapPageIo` - файловий бекенд поверх `memmap2::MmapRaw` (крейт, не std - обмеження task.md стосується тільки B-tree/storage/KV-бібліотек, а не загальних mmap-обгорток), з фіксованою адресою мапінгу на весь час життя стора. Весь `unsafe` для реального бекенду - це два невеликих `copy_nonoverlapping`-виклики (`read_at`/`write_at`), більше ніде. |
 | `src/debug/mod.rs` | Вивід сторінок в текстовому форматі - у вигляді pretty-printed або сирих байт |
 | `tests/mmap_integration.rs` | R7.2: інтеграційні тести з використанням файлового бек-енду - durability після reopen, split-heavy датасет, mismatch page_size. |
 | `tests/concurrency.rs` | R7.3: конкурентні тести - багато читачів під час постійних записів + тест на обмежений розмір файлу при повторних перезаписах. |
@@ -113,7 +112,7 @@ let store = StorageEngine::in_memory(4096);
 8. **R2.2** (атомарна публікація root) - `Store::root: AtomicU64`, єдиний `store()` у кінці `WriteTxn::commit`.
 9. **R2.3** (метадані - не COW) - header page (`src/page/header.rs`) переписується in-place на кожному коміті.
 10. **R3.1** (фіксовані сторінки, page_size конфігурований) - `page_size` передається при `StorageEngine::open`/`in_memory`, один вузол = одна сторінка скрізь у коді.
-11. **R3.2** (mmap як кеш) - `src/io/mmap.rs` + `src/ffi/mod.rs`: `MmapPageIo` поверх `RawMmap`.
+11. **R3.2** (mmap як кеш) - `src/io/file_backend.rs`: `MmapPageIo` поверх `memmap2::MmapRaw`.
 12. **R3.3** (явний формат сторінки, детермінований serialize/deserialize) - `Node::into_bytes`/`from_bytes` в `node.rs`, з маркером типу вузла в перших байтах.
 13. **R3.4** (persist + recover root id, open-or-create) - `Store::open_or_create`: валідний header → продовжуємо з нього; порожній/новий файл → бутстрап порожнього листка-рута; header з іншим page_size → явна помилка, а не тихе перезатирання.
 14. **R3.5** (підмінний бекенд) - трейт `PageIo` (`src/io/mod.rs`), дві реалізації - `MemoryPageIo` і `MmapPageIo`.
