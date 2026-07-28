@@ -2,14 +2,17 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use crate::io::{PageId, PageIo};
-use crate::page::header::{HEADER_PAGE_ID, Header};
-use crate::page::node::{NODE_LEAF, Node};
+use crate::page::Page;
+use crate::page::free_list::{free_list_capacity, free_list_decode, free_list_encode};
+use crate::page::header::{DecodeError, HEADER_PAGE_ID, Header};
+use crate::page::leaf::LeafNode;
 
 const INITIAL_ROOT_PAGE_ID: PageId = 1;
 
 #[derive(Debug)]
 pub enum OpenError {
     PageSizeMismatch { requested: usize, persisted: usize },
+    VersionMismatch { found: u32, expected: u32 },
 }
 
 impl std::fmt::Display for OpenError {
@@ -22,6 +25,10 @@ impl std::fmt::Display for OpenError {
                 f,
                 "requested page size {requested} doesn't match this store's page size {persisted}"
             ),
+            OpenError::VersionMismatch { found, expected } => write!(
+                f,
+                "file format version {found} is incompatible with this build's version {expected}"
+            ),
         }
     }
 }
@@ -32,6 +39,10 @@ struct WriterState {
     next_page_id: u64,
     free_list: Vec<PageId>,
     pending_free: Vec<PageId>,
+    /// The dedicated, permanent chain of pages that store the free list
+    /// itself on disk — always bump-allocated, never popped from
+    /// `free_list` (see `WriteTxn::persist_free_list`).
+    free_list_page_ids: Vec<PageId>,
 }
 
 /// Owns a `PageIo` backend and the COW commit/reclamation/concurrency
@@ -44,6 +55,22 @@ pub struct Store<IO: PageIo> {
     write_lock: Mutex<WriterState>, // R5.3: single-writer serialization
 }
 
+/// Walks the on-disk free-list chain starting at `head` (`0` = empty),
+/// collecting every free page id and every chain-storage page id
+/// visited (so they're recognized as reusable storage, not leaked, on
+/// the next commit).
+fn load_free_list_chain<IO: PageIo>(io: &IO, head: PageId) -> (Vec<PageId>, Vec<PageId>) {
+    let (mut free_list, mut page_ids) = (Vec::new(), Vec::new());
+    let mut cur = head;
+    while cur != 0 {
+        let (next, entries) = free_list_decode(cur, io.read_page(cur));
+        free_list.extend(entries);
+        page_ids.push(cur);
+        cur = next;
+    }
+    (free_list, page_ids)
+}
+
 impl<IO: PageIo> Store<IO> {
     /// Reads (and validates) the header page, or bootstraps a fresh store
     /// with an empty leaf root (R3.4: "a new file starts with an empty
@@ -53,25 +80,29 @@ impl<IO: PageIo> Store<IO> {
     ///
     /// A backend with no valid header page at all (fresh/empty) is always
     /// safe to bootstrap. A backend with a *valid* header page whose
-    /// page_size disagrees with the caller's request is a real error,
-    /// not a fresh backend — silently re-bootstrapping there would
-    /// clobber existing data instead of reporting the mismatch (R3.4).
+    /// page_size disagrees with the caller's request, or whose format
+    /// version doesn't match this build's, is a real error, not a fresh
+    /// backend — silently re-bootstrapping there would clobber existing
+    /// data instead of reporting the mismatch (R3.4).
     pub fn open_or_create(io: IO) -> Result<Self, OpenError> {
         let page_size = io.page_size();
-        let header = Header::from_bytes(&io.read_page(HEADER_PAGE_ID));
-
-        let header = match header {
-            Some(h) if h.page_size == page_size => h,
-            Some(h) => {
+        let header = match Header::from_bytes(&io.read_page(HEADER_PAGE_ID)) {
+            Ok(h) if h.page_size == page_size => h,
+            Ok(h) => {
                 return Err(OpenError::PageSizeMismatch {
                     requested: page_size,
                     persisted: h.page_size,
                 });
             }
-            None => {
-                let mut root = Node::new(page_size);
-                root.set_header(NODE_LEAF, 0);
-                io.write_page(INITIAL_ROOT_PAGE_ID, &root.into_bytes(page_size));
+            Err(DecodeError::VersionMismatch { found, expected }) => {
+                return Err(OpenError::VersionMismatch { found, expected });
+            }
+            Err(DecodeError::NotAHeader) => {
+                let root = LeafNode::empty(page_size);
+                io.write_page(
+                    INITIAL_ROOT_PAGE_ID,
+                    &root.to_bytes(INITIAL_ROOT_PAGE_ID, page_size),
+                );
                 let h = Header::new(page_size, INITIAL_ROOT_PAGE_ID, INITIAL_ROOT_PAGE_ID + 1);
                 io.write_page(HEADER_PAGE_ID, &h.to_bytes(page_size));
                 io.sync();
@@ -79,13 +110,16 @@ impl<IO: PageIo> Store<IO> {
             }
         };
 
+        let (free_list, free_list_page_ids) = load_free_list_chain(&io, header.free_list_head);
+
         Ok(Store {
             root: AtomicU64::new(header.root_id),
             readers: AtomicUsize::new(0),
             write_lock: Mutex::new(WriterState {
                 next_page_id: header.next_page_id,
-                free_list: Vec::new(),
+                free_list,
                 pending_free: Vec::new(),
+                free_list_page_ids,
             }),
             io,
         })
@@ -115,6 +149,14 @@ impl<IO: PageIo> Store<IO> {
         self.write_lock.lock().unwrap().free_list.len()
     }
 
+    /// A snapshot of the reusable free list's contents — used by
+    /// reclamation tests that need to confirm a *specific* recovered id
+    /// gets reused, not just that the count matches.
+    #[cfg(test)]
+    pub fn free_list_snapshot(&self) -> Vec<PageId> {
+        self.write_lock.lock().unwrap().free_list.clone()
+    }
+
     /// The bump-allocator high-water mark — used by reclamation tests to
     /// confirm the page count stays bounded under repeated overwrites.
     #[cfg(test)]
@@ -140,8 +182,12 @@ impl<IO: PageIo> ReadGuard<'_, IO> {
         self.store.root.load(Ordering::SeqCst)
     }
 
-    pub fn read(&self, id: PageId) -> Node {
-        Node::from_bytes(self.store.io.read_page(id))
+    pub fn read(&self, id: PageId) -> Page {
+        Page::decode(id, self.store.io.read_page(id))
+    }
+
+    pub fn page_size(&self) -> usize {
+        self.store.io.page_size()
     }
 }
 
@@ -166,11 +212,11 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
 
     /// Reads a page, checking this transaction's own not-yet-flushed
     /// writes first (read-your-own-writes).
-    pub fn read(&self, id: PageId) -> Node {
+    pub fn read(&self, id: PageId) -> Page {
         if let Some((_, bytes)) = self.writes.iter().rev().find(|(pid, _)| *pid == id) {
-            return Node::from_bytes(bytes.clone());
+            return Page::decode(id, bytes.clone());
         }
-        Node::from_bytes(self.store.io.read_page(id))
+        Page::decode(id, self.store.io.read_page(id))
     }
 
     /// Allocates a page id, preferring free-list reuse over extending
@@ -184,8 +230,8 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
         id
     }
 
-    pub fn write(&mut self, id: PageId, node: Node) {
-        self.writes.push((id, node.into_bytes(self.page_size())));
+    pub fn write(&mut self, id: PageId, page: Page) {
+        self.writes.push((id, page.to_bytes(id, self.page_size())));
     }
 
     /// Marks a page as orphaned by this write (R2.1: the old page along
@@ -202,8 +248,9 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
     ///    page can only be reused once no reader could still observe
     ///    it, and an observed reader count of zero is a sufficient
     ///    (if conservative) proof of that.
-    /// 4. Persist metadata (R2.3: updated in place, not COW).
-    /// 5. Sync, then publish the new root via a single atomic store.
+    /// 4. Persist the free list to its on-disk chain.
+    /// 5. Persist metadata (R2.3: updated in place, not COW).
+    /// 6. Sync, then publish the new root via a single atomic store.
     pub fn commit(&mut self, new_root: PageId) {
         for (id, bytes) in &self.writes {
             self.store.io.write_page(*id, bytes);
@@ -215,18 +262,79 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
             self.guard.free_list.append(&mut promoted);
         }
 
+        let (free_list_head, free_count) = self.persist_free_list();
+
         let header = Header {
             page_size: self.page_size(),
             root_id: new_root,
             next_page_id: self.guard.next_page_id,
-            free_list_head: 0, // Phase 1: free list lives in memory only, not yet persisted
-            free_count: self.guard.free_list.len() as u64,
+            free_list_head,
+            free_count,
         };
         self.store
             .io
             .write_page(HEADER_PAGE_ID, &header.to_bytes(self.page_size()));
         self.store.io.sync();
         self.store.root.store(new_root, Ordering::SeqCst);
+    }
+
+    /// Persists the free list to its dedicated on-disk chain (R2.3:
+    /// metadata, updated in place — not COW). Writes the UNION of
+    /// `free_list` and `pending_free`, not just `free_list`: safe
+    /// because a fresh process start always begins with `readers==0`
+    /// (R4.2's "a reader that could have observed it" cannot survive a
+    /// process boundary), so anything still pending at the last
+    /// shutdown is unconditionally reclaimable by whoever reopens next.
+    /// This process's own in-memory split — still gated by the live
+    /// quiescence check in `commit` — is untouched; only what's written
+    /// to disk is widened. This fully closes the free-list durability
+    /// gap (pages leaked if the process exited mid-batch), not just
+    /// narrows it.
+    ///
+    /// Storage pages for the chain are bump-allocated only, never
+    /// popped from `free_list` — popping the very list being serialized
+    /// this commit would be a fixed-point problem (popping changes the
+    /// list's length, which changes how many storage pages are needed,
+    /// which changes what you'd need to pop...). Once allocated, a
+    /// storage page is reused (overwritten in place) forever after,
+    /// even if the list later shrinks — a small, bounded, permanent
+    /// cost in exchange for a design simple enough to obviously be
+    /// correct.
+    fn persist_free_list(&mut self) -> (PageId, u64) {
+        let page_size = self.page_size();
+        let cap = free_list_capacity(page_size).max(1);
+        let payload: Vec<PageId> = self
+            .guard
+            .free_list
+            .iter()
+            .copied()
+            .chain(self.guard.pending_free.iter().copied())
+            .collect();
+        let pages_needed = payload.len().div_ceil(cap);
+
+        while self.guard.free_list_page_ids.len() < pages_needed {
+            let id = self.guard.next_page_id;
+            self.guard.next_page_id += 1;
+            self.guard.free_list_page_ids.push(id);
+        }
+        for i in 0..pages_needed {
+            let id = self.guard.free_list_page_ids[i];
+            let next = if i + 1 < pages_needed {
+                self.guard.free_list_page_ids[i + 1]
+            } else {
+                0
+            };
+            let chunk = &payload[i * cap..((i + 1) * cap).min(payload.len())];
+            self.store
+                .io
+                .write_page(id, &free_list_encode(id, next, chunk, page_size));
+        }
+        let head = if pages_needed > 0 {
+            self.guard.free_list_page_ids[0]
+        } else {
+            0
+        };
+        (head, payload.len() as u64)
     }
 }
 
@@ -240,9 +348,10 @@ mod tests {
     fn open_or_create_bootstraps_empty_leaf_root() {
         let store = Store::open_or_create(MemoryPageIo::new(4096)).unwrap();
         let view = store.enter_read();
-        let root = view.read(view.root());
-        assert_eq!(root.btype(), NODE_LEAF);
-        assert_eq!(root.nkeys(), 0);
+        match view.read(view.root()) {
+            Page::Leaf(l) => assert_eq!(l.nkeys(), 0),
+            Page::Internal(_) => panic!("expected a fresh leaf root"),
+        }
     }
 
     #[test]
@@ -299,5 +408,114 @@ mod tests {
             "page count grew from {pages_after_first_pass} to {pages_after_many_passes} after 20 \
              more overwrite passes — free-list reuse doesn't seem to be working"
         );
+    }
+
+    /// Closes the durability gap DESIGN.md used to document: the free
+    /// list must survive a close/reopen cycle, not reset to empty, and
+    /// the recovered ids must actually be usable (not just present in a
+    /// count).
+    #[test]
+    fn free_list_survives_reopen() {
+        let io = MemoryPageIo::new(4096);
+        let store = Store::open_or_create(io.reopen()).unwrap();
+        let keys: Vec<String> = (0..50).map(|i| format!("key{i:03}")).collect();
+        for k in &keys {
+            let mut txn = store.begin_write();
+            tree::put(&mut txn, k.as_bytes(), b"v1").unwrap();
+        }
+        for k in &keys {
+            let mut txn = store.begin_write();
+            tree::put(&mut txn, k.as_bytes(), b"v2").unwrap();
+        }
+        let free_before_reopen = store.free_list_len();
+        assert!(
+            free_before_reopen > 0,
+            "expected some pages freed by path-copying"
+        );
+
+        let reopened = Store::open_or_create(io.reopen()).unwrap();
+        assert_eq!(
+            reopened.free_list_len(),
+            free_before_reopen,
+            "free list should be fully recovered across reopen"
+        );
+
+        let free_ids_before_alloc = reopened.free_list_snapshot();
+        let allocated_id = {
+            let mut txn = reopened.begin_write();
+            txn.alloc()
+        };
+        assert!(
+            free_ids_before_alloc.contains(&allocated_id),
+            "alloc() right after reopen should pop a page id recovered from the on-disk free \
+             list, not bump next_page_id"
+        );
+
+        let view = reopened.enter_read();
+        for k in &keys {
+            assert_eq!(tree::get(&view, k.as_bytes()), Some(b"v2".to_vec()));
+        }
+    }
+
+    /// Forces the free list to outgrow one free-list page's capacity,
+    /// so recovery must actually walk the `next_page_id` chain — catches
+    /// a "forgot to follow `next`" bug specifically (a length-capped-at
+    /// one-page recovery would silently under-count instead).
+    #[test]
+    fn free_list_spans_multiple_chained_pages() {
+        // Sequential puts alone can't build a backlog bigger than one
+        // free-list page: each put frees ~tree-height pages but also
+        // *allocates* ~tree-height pages (preferring the free list
+        // first), so free_list_len() naturally plateaus at a small,
+        // roughly constant size — that's the reclamation scheme working
+        // as intended (see repeated_overwrites_reuse_pages_via_free_list).
+        // To force a real backlog, hold a reader open: the quiescence
+        // gate then can't promote anything, so every commit's frees
+        // pile up in pending_free instead of being drained by the next
+        // commit's allocs.
+        let page_size = 128;
+        let cap = free_list_capacity(page_size);
+        let io = MemoryPageIo::new(page_size);
+        let store = Store::open_or_create(io.reopen()).unwrap();
+
+        let keys: Vec<String> = (0..8).map(|i| format!("key{i:02}")).collect();
+        for k in &keys {
+            let mut txn = store.begin_write();
+            tree::put(&mut txn, k.as_bytes(), b"v0").unwrap();
+        }
+
+        let held_reader = store.enter_read();
+        for _ in 0..(cap + 5) {
+            for k in &keys {
+                let mut txn = store.begin_write();
+                tree::put(&mut txn, k.as_bytes(), b"v1").unwrap();
+            }
+        }
+        drop(held_reader);
+
+        // One more commit with no readers held promotes the whole
+        // accumulated batch from pending_free into the reusable free list.
+        {
+            let mut txn = store.begin_write();
+            tree::put(&mut txn, b"trigger", b"v").unwrap();
+        }
+
+        let free_before = store.free_list_len();
+        assert!(
+            free_before > cap,
+            "expected the free list ({free_before}) to exceed one page's capacity ({cap})"
+        );
+
+        let reopened = Store::open_or_create(io.reopen()).unwrap();
+        assert_eq!(
+            reopened.free_list_len(),
+            free_before,
+            "chained free-list pages must all be walked on reopen, not just the head"
+        );
+        let view = reopened.enter_read();
+        for k in &keys {
+            assert_eq!(tree::get(&view, k.as_bytes()), Some(b"v1".to_vec()));
+        }
+        assert_eq!(tree::get(&view, b"trigger"), Some(b"v".to_vec()));
     }
 }

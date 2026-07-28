@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use crate::io::PageIo;
-use crate::io::in_memory_backend::MemoryPageIo;
 use crate::io::file_backend::MmapPageIo;
-use crate::page::node::Error;
+use crate::io::in_memory_backend::MemoryPageIo;
+use crate::page::Error;
 use crate::storage::store::Store;
 use crate::storage::tree;
 
@@ -96,7 +96,7 @@ impl StorageEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::node;
+    use crate::page;
 
     #[test]
     fn put_and_get_round_trip() {
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn boundary_entry_size_is_enforced() {
         let page_size = 4096;
-        let max = node::max_kv_size(page_size);
+        let max = page::max_kv_size(page_size);
 
         let store = StorageEngine::in_memory(page_size);
         let key_at_max = vec![b'k'; max];

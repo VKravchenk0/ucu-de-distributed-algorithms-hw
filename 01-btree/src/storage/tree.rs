@@ -1,125 +1,136 @@
-use std::cmp::Ordering;
-
 use crate::io::PageIo;
-use crate::page::node::{
-    Error, NODE_INTERNAL, NODE_LEAF, Node, append_kv, check_limits, leaf_insert, leaf_update,
-    split3,
+use crate::page::internal::{
+    InternalNode, internal_child_index, internal_insert_split_child, internal_replace_child,
+    internal_split_with_promotion,
 };
+use crate::page::leaf::{LeafNode, leaf_insert, leaf_search, leaf_split_by_size, leaf_update};
+use crate::page::{Error, Page, check_limits};
 use crate::storage::store::{ReadGuard, WriteTxn};
 
-/// Binary search (R1.5) for the largest index whose key is <= `key`. An
-/// exact match returns immediately. Keys aren't a plain contiguous
-/// slice (each requires `get_key(idx)` decoding), so this is hand-rolled
-/// over the index range rather than using a stdlib slice search.
-fn lookup_le(node: &Node, key: &[u8]) -> u16 {
-    let (mut lo, mut hi): (i32, i32) = (0, node.nkeys() as i32 - 1);
-    let mut result: u16 = 0;
-    while lo <= hi {
-        let mid = lo + (hi - lo) / 2;
-        match node.get_key(mid as u16).cmp(key) {
-            Ordering::Equal => return mid as u16,
-            Ordering::Less => {
-                result = mid as u16;
-                lo = mid + 1;
-            }
-            Ordering::Greater => hi = mid - 1,
-        }
-    }
-    result
+/// The result of inserting into a node: either it still fits in one
+/// page, or it overflowed and had to split (R1.6). A `Split` always
+/// carries exactly one promoted separator key (never today's old
+/// design's up-to-3-piece split) — the caller either absorbs it into a
+/// copy of the parent or, if that overflows too, splits again and keeps
+/// propagating upward.
+enum InsertResult {
+    Single(Page),
+    Split {
+        left: Page,
+        sep_key: Vec<u8>,
+        right: Page,
+    },
 }
 
-fn insert_recursive<IO: PageIo>(
+fn insert_leaf(node: &LeafNode, key: &[u8], val: &[u8], page_size: usize) -> InsertResult {
+    let built = match leaf_search(node, key) {
+        Ok(idx) => leaf_update(node, idx, key, val),
+        Err(idx) => leaf_insert(node, idx, key, val),
+    };
+    if built.nbytes() <= page_size {
+        InsertResult::Single(Page::Leaf(built))
+    } else {
+        let (left, right) = leaf_split_by_size(built, page_size);
+        // Copied, not removed — leaves own all their data; the
+        // separator is just a navigation aid pointing at it.
+        let sep_key = right.get_key(0).to_vec();
+        InsertResult::Split {
+            left: Page::Leaf(left),
+            sep_key,
+            right: Page::Leaf(right),
+        }
+    }
+}
+
+fn insert_internal<IO: PageIo>(
     txn: &mut WriteTxn<IO>,
-    node: &Node,
+    node: &InternalNode,
     key: &[u8],
     val: &[u8],
-) -> Node {
-    let page_size = txn.page_size();
-    let mut new = Node::new(2 * page_size);
-    let idx = lookup_le(node, key);
-    match node.btype() {
-        NODE_LEAF => {
-            if node.get_key(idx) == key {
-                leaf_update(&mut new, node, idx, key, val);
+    page_size: usize,
+) -> InsertResult {
+    let idx = internal_child_index(node, key);
+    let child_id = node.get_child(idx);
+    let result = match txn.read(child_id) {
+        Page::Leaf(l) => insert_leaf(&l, key, val, page_size),
+        Page::Internal(i) => insert_internal(txn, &i, key, val, page_size),
+    };
+    txn.free(child_id); // always orphaned by COW, whether the child split or not
+
+    match result {
+        InsertResult::Single(new_child) => {
+            let id = txn.alloc();
+            txn.write(id, new_child);
+            InsertResult::Single(Page::Internal(internal_replace_child(node, idx, id)))
+        }
+        InsertResult::Split {
+            left,
+            sep_key,
+            right,
+        } => {
+            let lid = txn.alloc();
+            txn.write(lid, left);
+            let rid = txn.alloc();
+            txn.write(rid, right);
+            let grown = internal_insert_split_child(node, idx, &sep_key, lid, rid);
+            if grown.nbytes() <= page_size {
+                InsertResult::Single(Page::Internal(grown))
             } else {
-                leaf_insert(&mut new, node, idx + 1, key, val);
+                let (l2, promoted, r2) = internal_split_with_promotion(grown, page_size);
+                InsertResult::Split {
+                    left: Page::Internal(l2),
+                    sep_key: promoted,
+                    right: Page::Internal(r2),
+                }
             }
         }
-        NODE_INTERNAL => {
-            let kptr = node.get_ptr(idx);
-            let child = txn.read(kptr);
-            let updated_child = insert_recursive(txn, &child, key, val);
-            let (nsplit, split) = split3(updated_child, page_size);
-            txn.free(kptr);
-            replace_kid_n(txn, &mut new, node, idx, &split[..nsplit as usize]);
-        }
-        other => panic!("unexpected node type: {other}"),
     }
-    new
-}
-
-fn replace_kid_n<IO: PageIo>(
-    txn: &mut WriteTxn<IO>,
-    new: &mut Node,
-    old: &Node,
-    idx: u16,
-    kids: &[Node],
-) {
-    let inc = kids.len() as u16;
-    new.set_header(NODE_INTERNAL, old.nkeys() + inc - 1);
-    crate::page::node::append_range(new, old, 0, 0, idx);
-    for (i, kid) in kids.iter().enumerate() {
-        let key0 = kid.get_key(0).to_vec();
-        let ptr = txn.alloc();
-        txn.write(ptr, kid.clone());
-        append_kv(new, idx + i as u16, ptr, &key0, &[]);
-    }
-    crate::page::node::append_range(new, old, idx + inc, idx + 1, old.nkeys() - (idx + 1));
 }
 
 /// put() (R1.2, R1.4): insert or upsert a key, copying every node on
 /// the root-to-leaf path (R2.1) and growing the tree by one level if
-/// the root splits (R1.6).
+/// the root splits (R1.6). An empty root leaf needs no special-casing:
+/// `leaf_search` on zero entries returns `Err(0)` (the only possible
+/// insertion point), so `insert_leaf` builds a correct 1-entry leaf on
+/// the very first `put` through the same path every later `put` uses.
 pub fn put<IO: PageIo>(txn: &mut WriteTxn<IO>, key: &[u8], val: &[u8]) -> Result<(), Error> {
     let page_size = txn.page_size();
     check_limits(page_size, key, val)?;
 
     let root_id = txn.root();
-    let root = txn.read(root_id);
-
-    // On the very first put, promote the empty leaf root into a 1-entry
-    // leaf with a dummy empty-key sentinel covering the whole key
-    // space, so a lookup can always find a containing node. Every
-    // later put reuses this same insert_recursive path uniformly.
-    let node = if root.nkeys() == 0 {
-        let mut bootstrapped = Node::new(page_size);
-        bootstrapped.set_header(NODE_LEAF, 1);
-        append_kv(&mut bootstrapped, 0, 0, &[], &[]);
-        bootstrapped
-    } else {
-        root
+    let result = match txn.read(root_id) {
+        Page::Leaf(l) => insert_leaf(&l, key, val, page_size),
+        Page::Internal(i) => insert_internal(txn, &i, key, val, page_size),
     };
-
-    let updated = insert_recursive(txn, &node, key, val);
-    let (nsplit, split) = split3(updated, page_size);
     txn.free(root_id);
 
-    let new_root = if nsplit > 1 {
-        let mut new_root_node = Node::new(page_size);
-        new_root_node.set_header(NODE_INTERNAL, nsplit);
-        for (i, knode) in split[..nsplit as usize].iter().enumerate() {
-            let key0 = knode.get_key(0).to_vec();
-            let ptr = txn.alloc();
-            txn.write(ptr, knode.clone());
-            append_kv(&mut new_root_node, i as u16, ptr, &key0, &[]);
+    let new_root = match result {
+        InsertResult::Single(node) => {
+            let id = txn.alloc();
+            txn.write(id, node);
+            id
         }
-        let id = txn.alloc();
-        txn.write(id, new_root_node);
-        id
-    } else {
-        let id = txn.alloc();
-        txn.write(id, split[0].clone());
-        id
+        InsertResult::Split {
+            left,
+            sep_key,
+            right,
+        } => {
+            // The root split: grow the tree by one level with a brand
+            // new, always-minimal root (1 key, 2 children) — no
+            // "3-way split, never re-split" special case needed (see
+            // page::max_kv_size's doc comment).
+            let lid = txn.alloc();
+            txn.write(lid, left);
+            let rid = txn.alloc();
+            txn.write(rid, right);
+            let mut root = InternalNode::empty(page_size);
+            root.push_key(&sep_key);
+            root.push_child(lid);
+            root.push_child(rid);
+            let id = txn.alloc();
+            txn.write(id, Page::Internal(root));
+            id
+        }
     };
 
     txn.commit(new_root);
@@ -127,28 +138,19 @@ pub fn put<IO: PageIo>(txn: &mut WriteTxn<IO>, key: &[u8], val: &[u8]) -> Result
 }
 
 /// get() (R1.4): returns the value for `key`, or `None` if absent or
-/// the store is empty. Never blocks on a writer (R5.2) — `view` only
-/// ever performs wait-free atomic reads plus plain page fetches.
+/// the store is empty (an empty root leaf's `leaf_search` naturally
+/// returns `Err(0)`, which maps to `None`). Never blocks on a writer
+/// (R5.2) — `view` only ever performs wait-free atomic reads plus plain
+/// page fetches.
 pub fn get<IO: PageIo>(view: &ReadGuard<IO>, key: &[u8]) -> Option<Vec<u8>> {
-    let mut node = view.read(view.root());
+    let mut page = view.read(view.root());
     loop {
-        if node.nkeys() == 0 {
-            return None; // empty store: no put() has happened yet
-        }
-        let idx = lookup_le(&node, key);
-        match node.btype() {
-            NODE_LEAF => {
-                return if node.get_key(idx) == key {
-                    Some(node.get_val(idx).to_vec())
-                } else {
-                    None
-                };
+        match page {
+            Page::Leaf(l) => return leaf_search(&l, key).ok().map(|idx| l.get_val(idx).to_vec()),
+            Page::Internal(i) => {
+                let idx = internal_child_index(&i, key);
+                page = view.read(i.get_child(idx));
             }
-            NODE_INTERNAL => {
-                let kptr = node.get_ptr(idx);
-                node = view.read(kptr);
-            }
-            other => panic!("unexpected node type: {other}"),
         }
     }
 }
