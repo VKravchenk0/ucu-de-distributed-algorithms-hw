@@ -133,10 +133,24 @@ mod tests {
         assert_eq!(store.get(b"anything"), None);
     }
 
+    /// Counts leaf pages reachable from the current root, recursing
+    /// through internal nodes' children.
+    fn count_leaves(store: &StorageEngine) -> usize {
+        fn walk(view: &crate::storage::store::ReadGuard<Box<dyn crate::io::PageIo>>, id: crate::io::PageId) -> usize {
+            match view.read(id) {
+                page::Page::Leaf(_) => 1,
+                page::Page::Internal(i) => (0..=i.nkeys()).map(|idx| walk(view, i.get_child(idx))).sum(),
+            }
+        }
+        let view = store.store.enter_read();
+        walk(&view, view.root())
+    }
+
     #[test]
     fn bulk_insert_forces_leaf_split_and_stays_lookupable() {
         let store = StorageEngine::in_memory(4096);
         store.print_tree();
+        let leaves_before = count_leaves(&store);
         for i in 0..500 {
             store
                 .put(
@@ -146,6 +160,11 @@ mod tests {
                 .unwrap();
         }
         store.print_tree();
+        let leaves_after = count_leaves(&store);
+        assert!(
+            leaves_after > leaves_before,
+            "expected bulk insert to split leaves: {leaves_before} -> {leaves_after}"
+        );
         for i in 0..500 {
             assert_eq!(
                 store.get(format!("key{i:05}").as_bytes()),
