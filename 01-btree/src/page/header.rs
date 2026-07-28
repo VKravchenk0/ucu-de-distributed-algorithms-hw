@@ -1,7 +1,7 @@
 use crate::io::PageId;
 use crate::page::PAGE_TYPE_HEADER;
 
-const MAGIC: [u8; 8] = *b"HWBTREE1";
+const FORMAT_SIGNATURE: [u8; 8] = *b"HWBTREE1";
 const VERSION: u32 = 2;
 
 /// Page 0 is always the header page (R3.4).
@@ -50,7 +50,7 @@ impl Header {
     pub fn to_bytes(self, page_size: usize) -> Vec<u8> {
         let mut buf = vec![0u8; page_size];
         buf[0] = PAGE_TYPE_HEADER;
-        buf[1..9].copy_from_slice(&MAGIC);
+        buf[1..9].copy_from_slice(&FORMAT_SIGNATURE);
         buf[9..13].copy_from_slice(&VERSION.to_le_bytes());
         buf[13..17].copy_from_slice(&(self.page_size as u32).to_le_bytes());
         buf[17..25].copy_from_slice(&self.root_id.to_le_bytes());
@@ -66,7 +66,7 @@ impl Header {
     /// for a real but incompatible-version header, which the caller must
     /// treat as a hard error rather than silently rebuilding.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        if bytes.len() < 49 || bytes[0] != PAGE_TYPE_HEADER || bytes[1..9] != MAGIC[..] {
+        if bytes.len() < 49 || bytes[0] != PAGE_TYPE_HEADER || bytes[1..9] != FORMAT_SIGNATURE[..] {
             return Err(DecodeError::NotAHeader);
         }
         let version = u32::from_le_bytes(bytes[9..13].try_into().unwrap());
