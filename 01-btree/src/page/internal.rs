@@ -4,8 +4,7 @@ use crate::page::PAGE_TYPE_INTERNAL;
 /// 1B type tag + 8B page id + 2B key count.
 pub const INTERNAL_HEADER: u16 = 11;
 
-/// An internal page: N separator keys, N+1 child pointers (the classic
-/// B-tree layout — task.md R1.1's "separator keys and child pointers").
+/// An internal page: N separator keys, N+1 child pointers. 
 /// On-disk layout:
 ///
 /// | tag(1B)=0x02 | page id(8B) | key count N(2B) | keys... | children... | unused |
@@ -87,7 +86,6 @@ impl InternalNode {
         &self.keys[start + 2..end]
     }
 
-    /// O(1): children are fixed-width and already parsed into a `Vec`.
     pub fn get_child(&self, idx: u16) -> PageId {
         self.children[idx as usize]
     }
@@ -111,17 +109,33 @@ impl InternalNode {
         self.children.push(child);
     }
 
-    /// Debug/manual-inspection only: not a deliverable test path. Shows
-    /// keys and children as two separate, differently-sized lists (N vs
-    /// N+1) rather than the old 1:1 `key -> child_ptr` framing, since
-    /// that pairing no longer exists.
-    pub fn print_pretty(&self) {
+    /// Debug/manual-inspection only. Prints the page's used/total size
+    /// plus the byte range of each on-disk section (header, keys,
+    /// children, unused) so the layout comment above can be checked
+    /// against real output.
+    pub fn print_pretty(&self, page_size: usize) {
+        let header_end = INTERNAL_HEADER as usize;
+        let keys_end = header_end + self.keys.len();
+        let children_end = keys_end + 8 * self.children.len();
         println!(
-            "  type=INTERNAL id={} nkeys={} nchildren={} used={}B",
+            "  type=INTERNAL id={} nkeys={} nchildren={} used={}B/{page_size}B",
             self.id(),
             self.nkeys(),
             self.nchildren(),
             self.nbytes()
+        );
+        println!("    header:   [0..{header_end})  {header_end}B");
+        println!(
+            "    keys:     [{header_end}..{keys_end})  {}B",
+            keys_end - header_end
+        );
+        println!(
+            "    children: [{keys_end}..{children_end})  {}B",
+            children_end - keys_end
+        );
+        println!(
+            "    unused:   [{children_end}..{page_size})  {}B",
+            page_size - children_end
         );
         for i in 0..self.nkeys() {
             println!(
@@ -151,13 +165,10 @@ impl InternalNode {
     }
 }
 
-/// Child to descend into for `key`: the count of separator keys `<=
-/// key` (an upper-bound/partition-point search) — deliberately a
-/// *different* computation from leaf search, so the two can't get
-/// silently conflated the way today's single `lookup_le` (reused for
-/// both) implicitly relies on the old 1:1 key:child pairing.
+/// Child to descend into for `key`: the count of separator keys `<= key`
+/// (an upper-bound/partition-point search).
 ///
-/// Verified boundary table for keys `[b,d,f]`, children `c0..c3`:
+/// Boundary table for keys `[b,d,f]`, children `c0..c3`:
 /// `a->0, b->1, c->1, d->2, e->2, f->3, z->3`.
 pub fn internal_child_index(node: &InternalNode, key: &[u8]) -> u16 {
     let (mut lo, mut hi) = (0u16, node.nkeys());
@@ -192,15 +203,13 @@ pub fn internal_replace_child(node: &InternalNode, idx: u16, new_child: PageId) 
 
 /// Splices a split child's `(left, sep_key, right)` in at `child_idx`
 /// (the index that used to point at the now-split child). Result has
-/// N+1 keys / N+2 children — may overflow `page_size`; the caller
-/// checks `nbytes()` and splits again via `internal_split_with_promotion`
-/// if so.
+/// N+1 keys / N+2 children — may overflow `page_size`; the caller checks
+/// `nbytes()` and splits again via `internal_split_with_promotion` if so.
 ///
-/// Worked example: `N=2` keys `[k0,k1]`, children `[c0,c1,c2]`,
-/// `child_idx=1` (`c1` split) -> new keys `[k0,sep,k1]`, new children
-/// `[c0,left,right,c2]`. Boundaries degenerate with no special-casing:
-/// `child_idx=0` -> keys `[sep,k0,k1]`, children `[left,right,c1,c2]`;
-/// `child_idx=N` -> keys `[k0,k1,sep]`, children `[c0,c1,left,right]`.
+/// Example: keys `[k0,k1]`, children `[c0,c1,c2]`, `child_idx=1` (`c1`
+/// split) -> keys `[k0,sep,k1]`, children `[c0,left,right,c2]`. The
+/// `child_idx=0` and `child_idx=N` edges splice in the same way, no
+/// special-casing needed.
 pub fn internal_insert_split_child(
     node: &InternalNode,
     child_idx: u16,
@@ -228,16 +237,13 @@ pub fn internal_insert_split_child(
     new
 }
 
-/// True median-key promotion: the chosen split key is REMOVED from both
-/// halves and returned separately — unlike a leaf split, where the
-/// separator is *copied* (leaves own all their data; internal keys are
-/// pure navigation aids with none). Returns `(left, promoted_key,
-/// right)`.
+/// Median-key promotion: the chosen split key is removed from both
+/// halves and returned separately, unlike a leaf split where the
+/// separator is copied. Returns `(left, promoted_key, right)`.
 ///
-/// `left` gets keys`[0..m)` + children`[0..=m]`; `right` gets
-/// keys`(m..np)` (excluding the promoted key at `m`) + children`(m..=np]`
-/// — disjoint, fixed-width child ranges, so total children conserves
-/// exactly to `grown.nchildren()` (no duplication).
+/// `left` gets keys `[0..m)` + children `[0..=m]`; `right` gets keys
+/// `(m..np)` + children `(m..=np]` — disjoint ranges, so children
+/// conserve exactly with none duplicated.
 pub fn internal_split_with_promotion(
     grown: InternalNode,
     page_size: usize,
@@ -351,12 +357,6 @@ mod tests {
             );
         }
     }
-
-    // Separator keys must stay lexicographically ordered: child_idx=1's
-    // promoted key sits *between* d and f (splitting the child that
-    // spans [d,f)); child_idx=0's sits below d (splitting the child
-    // that spans (-inf,d)); child_idx=N's sits above f (splitting the
-    // child that spans [f,+inf)).
 
     #[test]
     fn insert_split_child_worked_example() {

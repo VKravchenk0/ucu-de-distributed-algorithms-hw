@@ -7,15 +7,15 @@ use memmap2::{MmapOptions, MmapRaw};
 
 use super::{PageId, PageIo};
 
-/// Reserved virtual address space, chosen once at open time. The mapping
-/// is never remapped/resized for the store's lifetime (R3.2) — growth
-/// only ever extends the backing file within this ceiling. Generous by
-/// default since unused reserved virtual space is free on 64-bit Linux;
-/// exceeding it is a documented Phase 2 limitation (no online resize).
+/// Reserved virtual address space, chosen once at open time and never
+/// remapped/resized for the store's lifetime — growth only ever extends
+/// the backing file within this ceiling. Generous by default since
+/// unused reserved virtual space is free on 64-bit Linux; exceeding it
+/// means an online resize, which isn't supported yet.
 const DEFAULT_MAX_SIZE: u64 = 1 << 30; // 1 GiB
 
-/// The real, file-backed `PageIo` (R3.1-R3.4): a fixed-size-page file,
-/// cached via `mmap`.
+/// The real, file-backed `PageIo`: a fixed-size-page file, cached via
+/// `mmap`.
 pub struct MmapPageIo {
     file: File,
     mmap: MmapRaw,
@@ -27,7 +27,7 @@ pub struct MmapPageIo {
 }
 
 impl MmapPageIo {
-    /// Opens (or creates) `path` as a page file (R3.4: open-or-create).
+    /// Opens (or creates) `path` as a page file.
     pub fn open(path: impl AsRef<Path>, page_size: usize) -> io::Result<Self> {
         Self::open_with_max_size(path, page_size, DEFAULT_MAX_SIZE)
     }

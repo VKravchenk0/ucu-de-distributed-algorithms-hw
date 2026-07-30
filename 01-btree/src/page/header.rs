@@ -4,12 +4,12 @@ use crate::page::PAGE_TYPE_HEADER;
 const FORMAT_SIGNATURE: [u8; 8] = *b"HWBTREE1";
 const VERSION: u32 = 2;
 
-/// Page 0 is always the header page (R3.4).
+/// Page 0 is always the header page.
 pub const HEADER_PAGE_ID: PageId = 0;
 
-/// The header page (R3.3, R3.4): identifies the file, records the
-/// configured page size, and points at the current root and free-list
-/// chain. Updated in place on each commit (R2.3 — metadata isn't COW).
+/// The header page: identifies the file, records the configured page
+/// size, and points at the current root and free-list chain. Updated in
+/// place on each commit — metadata isn't COW.
 ///
 /// Layout: type tag(1B)=0x2A | magic(8B) | version(4B) | page_size(4B) |
 /// root_id(8B) | next_page_id(8B) | free_list_head(8B) | free_count(8B)
@@ -62,9 +62,9 @@ impl Header {
 
     /// `Err(NotAHeader)` for anything that isn't a header page at all —
     /// a fresh/empty backend included, which the caller treats as
-    /// "bootstrap a new store" (R3.4: open-or-create). `Err(VersionMismatch)`
-    /// for a real but incompatible-version header, which the caller must
-    /// treat as a hard error rather than silently rebuilding.
+    /// "bootstrap a new store". `Err(VersionMismatch)` for a real but
+    /// incompatible-version header, which the caller must treat as a
+    /// hard error rather than silently rebuilding.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         if bytes.len() < 49 || bytes[0] != PAGE_TYPE_HEADER || bytes[1..9] != FORMAT_SIGNATURE[..] {
             return Err(DecodeError::NotAHeader);

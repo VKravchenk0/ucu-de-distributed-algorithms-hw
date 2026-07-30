@@ -14,8 +14,8 @@ pub const PAGE_TYPE_INTERNAL: u8 = 0x02;
 pub const PAGE_TYPE_FREE_LIST: u8 = 0x03;
 
 /// A decoded B+Tree page: exactly one of the two node kinds a tree page
-/// can be (R1.1). Free-list and header pages are metadata, not tree
-/// nodes, and aren't represented here — they're handled directly by
+/// can be. Free-list and header pages are metadata, not tree nodes, and
+/// aren't represented here — they're handled directly by
 /// `storage::store`.
 pub enum Page {
     Leaf(LeafNode),
@@ -57,22 +57,14 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The largest combined key+value size (R1.3) that's always safe to
-/// insert.
+/// The largest combined key+value size that's always safe to insert.
 ///
-/// Binding requirement: any valid internal node must be able to hold 2
-/// max-size separator keys + 3 children simultaneously, so that when it
-/// overflows by one more key (from an insert-driven split below it,
-/// N'=3 keys), `internal_split_with_promotion` always has a valid split
-/// point (m=1). This is a much looser bound than a scheme built around
-/// 3-way root splits would need, since true median-key promotion means
-/// an overflowing node always produces exactly 2 outputs + 1 promoted
-/// key (never 3), and a freshly grown root is always minimal (1 key, 2
-/// children).
-///
-/// The same bound is used for leaf entries (`key.len()+val.len()`) too
-/// — the internal-node case is the tighter, binding constraint, since a
-/// separator is just a bare leaf key with no value.
+/// Derived from the binding case: an internal node must always be able
+/// to hold 2 max-size separators + 3 children at once, so that when it
+/// overflows by one key, `internal_split_with_promotion` always finds a
+/// valid split point. Leaf entries share the same bound — a separator is
+/// just a bare leaf key with no value, so the internal-node case is the
+/// tighter constraint.
 pub fn max_kv_size(page_size: usize) -> usize {
     page_size.saturating_sub(INTERNAL_HEADER as usize + 28) / 2
 }

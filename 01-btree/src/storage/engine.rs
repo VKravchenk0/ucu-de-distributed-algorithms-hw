@@ -8,8 +8,8 @@ use crate::storage::store::Store;
 use crate::storage::tree;
 
 /// A persistent, ordered key-value store backed by a copy-on-write
-/// B+Tree (task.md). The only public operations are `put`/`get` (R1.2);
-/// deletion is intentionally not implemented.
+/// B+Tree. The only public operations are `put`/`get`; deletion is
+/// intentionally not implemented.
 pub struct StorageEngine {
     store: Store<Box<dyn PageIo>>,
 }
@@ -17,7 +17,7 @@ pub struct StorageEngine {
 /// Why opening a store can fail: either the usual file-I/O reasons
 /// (permissions, missing parent directory, ...), or reopening an
 /// existing file with a `page_size` that doesn't match what it was
-/// created with (R3.4).
+/// created with.
 #[derive(Debug)]
 pub enum OpenError {
     Io(std::io::Error),
@@ -48,9 +48,9 @@ impl From<crate::storage::store::OpenError> for OpenError {
 }
 
 impl StorageEngine {
-    /// An in-memory store (R3.5, R7.1) — no persistence, useful for
-    /// tests or ephemeral use. Always succeeds: a fresh `MemoryPageIo`
-    /// can never hit the page-size-mismatch case `open` guards against.
+    /// An in-memory store — no persistence, useful for tests or
+    /// ephemeral use. Always succeeds: a fresh `MemoryPageIo` can never
+    /// hit the page-size-mismatch case `open` guards against.
     pub fn in_memory(page_size: usize) -> Self {
         let io: Box<dyn PageIo> = Box::new(MemoryPageIo::new(page_size));
         StorageEngine {
@@ -58,9 +58,9 @@ impl StorageEngine {
         }
     }
 
-    /// Opens (or creates) a real, mmap-backed file at `path` (R3.1-R3.4).
-    /// Reopening an existing file created with a different `page_size`
-    /// is an error rather than silently discarding its data.
+    /// Opens (or creates) a real, mmap-backed file at `path`. Reopening
+    /// an existing file created with a different `page_size` is an
+    /// error rather than silently discarding its data.
     pub fn open(path: impl AsRef<Path>, page_size: usize) -> Result<Self, OpenError> {
         let io: Box<dyn PageIo> = Box::new(MmapPageIo::open(path, page_size)?);
         let store = Store::open_or_create(io)?;
@@ -68,21 +68,22 @@ impl StorageEngine {
     }
 
     /// Inserts `key`/`val`, or overwrites `key`'s value if it already
-    /// exists (R1.4 upsert).
+    /// exists.
     pub fn put(&self, key: &[u8], val: &[u8]) -> Result<(), Error> {
         let mut txn = self.store.begin_write();
         tree::put(&mut txn, key, val)
     }
 
-    /// Returns `key`'s value, or `None` if it isn't present (R1.4).
+    /// Returns `key`'s value, or `None` if it isn't present.
     pub fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         let view = self.store.enter_read();
         tree::get(&view, key)
     }
 
     /// Pretty-prints every page in the tree to the console, annotated
-    /// with page boundaries and the byte ranges of each node section
-    /// (header/pointers/offsets/entries/unused).
+    /// with page boundaries and the byte ranges of each node section:
+    /// header/entries/unused for a leaf, header/keys/children/unused
+    /// for an internal node.
     pub fn print_tree(&self) {
         crate::debug::print_tree(&self.store.enter_read());
     }
@@ -101,6 +102,7 @@ mod tests {
     #[test]
     fn put_and_get_round_trip() {
         let store = StorageEngine::in_memory(4096);
+        store.print_tree();
         store.put(b"hello", b"world").unwrap();
         store.print_tree();
         store.put(b"foo", b"bar").unwrap();
@@ -176,8 +178,7 @@ mod tests {
     #[test]
     fn small_page_size_forces_multi_level_root_growth() {
         // A small page size forces internal-node splits (not just leaf
-        // splits) and multi-level tree growth without needing a huge
-        // key count (R1.6).
+        // splits) and multi-level tree growth without a huge key count.
         let store = StorageEngine::in_memory(256);
         store.print_tree();
         for i in 0..300 {

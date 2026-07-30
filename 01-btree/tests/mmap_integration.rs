@@ -1,5 +1,5 @@
-//! R7.2: integration tests against the real mmap file backend, exercised
-//! only through the public API (`StorageEngine::open`/`put`/`get`).
+//! Integration tests against the real mmap file backend, exercised only
+//! through the public API (`StorageEngine::open`/`put`/`get`).
 
 mod common;
 

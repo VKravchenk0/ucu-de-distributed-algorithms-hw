@@ -13,13 +13,12 @@ fn walk<IO: PageIo>(view: &ReadGuard<IO>, id: PageId, depth: usize, raw: bool) {
         print_raw(&page.to_bytes(id, view.page_size()));
     } else {
         match &page {
-            Page::Leaf(l) => l.print_pretty(),
-            Page::Internal(i) => i.print_pretty(),
+            Page::Leaf(l) => l.print_pretty(view.page_size()),
+            Page::Internal(i) => i.print_pretty(view.page_size()),
         }
     }
     if let Page::Internal(i) = &page {
-        // N+1 children per N separators (the classic B-tree shape) —
-        // was `0..nkeys()` back when a node had one child per key.
+        // N+1 children per N separators.
         for idx in 0..=i.nkeys() {
             walk(view, i.get_child(idx), depth + 1, raw);
         }
@@ -31,6 +30,7 @@ fn walk<IO: PageIo>(view: &ReadGuard<IO>, id: PageId, depth: usize, raw: bool) {
 pub fn print_tree<IO: PageIo>(view: &ReadGuard<IO>) {
     println!("========== TREE (root={}) ==========", view.root());
     walk(view, view.root(), 0, false);
+    println!();
 }
 
 /// Raw byte dump of every page reachable from the current root.

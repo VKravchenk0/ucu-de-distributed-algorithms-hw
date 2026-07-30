@@ -6,15 +6,14 @@ use crate::page::PAGE_TYPE_LEAF;
 /// 1B type tag + 8B page id + 2B key count.
 pub const LEAF_HEADER: u16 = 11;
 
-/// A leaf page (R1.1: values live only here). On-disk layout:
+/// A leaf page — values live only here. On-disk layout:
 ///
 /// | tag(1B)=0x01 | page id(8B) | key count(2B) | entries... | unused |
 ///
 /// Each entry: `key_len(2B) | key | val_len(2B) | val`, back to back —
-/// no offsets/pointers index table (task.md: "slotted-page architecture
-/// ... not required"). `entry_start` is an in-memory-only cache built
-/// once at decode time so lookups still get O(1) random access / binary
-/// search (R1.5) without persisting an index on disk.
+/// no offsets/pointer index table. `entry_start` is an in-memory-only
+/// cache built once at decode time, so lookups still get O(1) random
+/// access / binary search without persisting an index on disk.
 pub struct LeafNode {
     id: PageId,
     entries: Vec<u8>,
@@ -111,13 +110,27 @@ impl LeafNode {
         }
     }
 
-    /// Debug/manual-inspection only: not a deliverable test path.
-    pub fn print_pretty(&self) {
+    /// Debug/manual-inspection only. Prints the page's used/total size
+    /// plus the byte range of each on-disk section (header, entries,
+    /// unused) so the layout comment above can be checked against real
+    /// output.
+    pub fn print_pretty(&self, page_size: usize) {
+        let header_end = LEAF_HEADER as usize;
+        let entries_end = header_end + self.entries.len();
         println!(
-            "  type=LEAF id={} nkeys={} used={}B",
+            "  type=LEAF id={} nkeys={} used={}B/{page_size}B",
             self.id(),
             self.nkeys(),
             self.nbytes()
+        );
+        println!("    header:  [0..{header_end})  {header_end}B");
+        println!(
+            "    entries: [{header_end}..{entries_end})  {}B",
+            entries_end - header_end
+        );
+        println!(
+            "    unused:  [{entries_end}..{page_size})  {}B",
+            page_size - entries_end
         );
         for i in 0..self.nkeys() {
             println!(
@@ -143,11 +156,9 @@ impl LeafNode {
     }
 }
 
-/// Exact match / sorted insertion point (R1.5: binary search inside a
-/// node). `Ok(idx)`: `node.get_key(idx) == key`. `Err(idx)`: where `key`
-/// belongs, in `0..=nkeys()`. Mirrors `slice::binary_search`'s
-/// convention — safer at call sites than a single "largest idx with
-/// key<=target" plus a separate equality check.
+/// Binary search for `key`. `Ok(idx)`: `node.get_key(idx) == key`.
+/// `Err(idx)`: where `key` belongs, in `0..=nkeys()`. Mirrors
+/// `slice::binary_search`'s convention.
 pub fn leaf_search(node: &LeafNode, key: &[u8]) -> Result<u16, u16> {
     let (mut lo, mut hi): (i32, i32) = (0, node.nkeys() as i32 - 1);
     while lo <= hi {
@@ -173,7 +184,7 @@ pub fn leaf_insert(old: &LeafNode, idx: u16, key: &[u8], val: &[u8]) -> LeafNode
 
 /// Builds a new leaf with the entry at `idx` (from `leaf_search`'s
 /// `Ok(idx)`) replaced by `(key, val)` — `key` should equal
-/// `old.get_key(idx)`; only the value changes (upsert, R1.4).
+/// `old.get_key(idx)`; only the value changes (upsert).
 pub fn leaf_update(old: &LeafNode, idx: u16, key: &[u8], val: &[u8]) -> LeafNode {
     let mut new = LeafNode::empty(2 * (old.nbytes() + val.len() + 4));
     new.push_range(old, 0, idx);
@@ -182,8 +193,8 @@ pub fn leaf_update(old: &LeafNode, idx: u16, key: &[u8], val: &[u8]) -> LeafNode
     new
 }
 
-/// Splits an oversized leaf into two that each fit `page_size` (R6.2:
-/// driven by actual serialized size, not an entry-count estimate).
+/// Splits an oversized leaf into two that each fit `page_size`, driven
+/// by actual serialized size, not an entry-count estimate.
 pub fn leaf_split_by_size(old: LeafNode, page_size: usize) -> (LeafNode, LeafNode) {
     debug_assert!(old.nkeys() >= 2);
     debug_assert!(page_size <= u16::MAX as usize);
@@ -268,11 +279,8 @@ mod tests {
     fn split_by_size_preserves_all_entries_and_fits() {
         let page_size = 128usize;
         // Grow one entry at a time until just barely over page_size —
-        // the only scenario leaf_split_by_size is ever actually called
-        // in (a previously-fitting leaf plus exactly one new entry), and
-        // the only scenario a 2-way split is even structurally possible
-        // for (an arbitrarily oversized node can exceed what 2 pages can
-        // hold at all, regardless of algorithm).
+        // the realistic case (one fitting leaf plus one new entry), and
+        // the only case a 2-way split can actually handle.
         let mut node = LeafNode::empty(2 * page_size);
         let mut count = 0u32;
         while node.nbytes() <= page_size {

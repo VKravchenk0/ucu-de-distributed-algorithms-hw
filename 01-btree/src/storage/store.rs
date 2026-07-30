@@ -46,13 +46,13 @@ struct WriterState {
 }
 
 /// Owns a `PageIo` backend and the COW commit/reclamation/concurrency
-/// state built on top of it (R2, R4, R5) — generic over the backend so
-/// this logic is written and tested once, not duplicated per backend.
+/// state built on top of it — generic over the backend so this logic is
+/// written and tested once, not duplicated per backend.
 pub struct Store<IO: PageIo> {
     io: IO,
-    root: AtomicU64,                // R2.2: the single atomically-published root
-    readers: AtomicUsize,           // R4.2/R5.2: lock-free reader quiescence gate
-    write_lock: Mutex<WriterState>, // R5.3: single-writer serialization
+    root: AtomicU64,                // the single atomically-published root
+    readers: AtomicUsize,           // lock-free reader quiescence gate
+    write_lock: Mutex<WriterState>, // single-writer serialization
 }
 
 /// Walks the on-disk free-list chain starting at `head` (`0` = empty),
@@ -73,17 +73,16 @@ fn load_free_list_chain<IO: PageIo>(io: &IO, head: PageId) -> (Vec<PageId>, Vec<
 
 impl<IO: PageIo> Store<IO> {
     /// Reads (and validates) the header page, or bootstraps a fresh store
-    /// with an empty leaf root (R3.4: "a new file starts with an empty
-    /// leaf root"). Works identically for a brand-new backend and a
-    /// real reopened file — the memory backend goes through the exact
-    /// same path so this logic is exercised long before mmap exists.
+    /// with an empty leaf root. Works identically for a brand-new backend
+    /// and a real reopened file — the memory backend goes through the
+    /// exact same path, so this logic is exercised long before mmap
+    /// exists.
     ///
-    /// A backend with no valid header page at all (fresh/empty) is always
-    /// safe to bootstrap. A backend with a *valid* header page whose
-    /// page_size disagrees with the caller's request, or whose format
-    /// version doesn't match this build's, is a real error, not a fresh
-    /// backend — silently re-bootstrapping there would clobber existing
-    /// data instead of reporting the mismatch (R3.4).
+    /// A backend with no valid header page at all is safe to bootstrap.
+    /// A backend with a *valid* header page whose page_size or format
+    /// version disagrees with the caller's request is a real error, not
+    /// a fresh backend — silently re-bootstrapping there would clobber
+    /// existing data instead of reporting the mismatch.
     pub fn open_or_create(io: IO) -> Result<Self, OpenError> {
         let page_size = io.page_size();
         let header = match Header::from_bytes(&io.read_page(HEADER_PAGE_ID)) {
@@ -165,8 +164,8 @@ impl<IO: PageIo> Store<IO> {
     }
 }
 
-/// A lock-free, wait-free read snapshot (R5.2): never touches
-/// `write_lock`, so it can never block on or be blocked by a writer.
+/// A lock-free, wait-free read snapshot: never touches `write_lock`, so
+/// it can never block on or be blocked by a writer.
 pub struct ReadGuard<'a, IO: PageIo> {
     store: &'a Store<IO>,
 }
@@ -191,8 +190,8 @@ impl<IO: PageIo> ReadGuard<'_, IO> {
     }
 }
 
-/// A single serialized write transaction (R5.3). Buffers page
-/// writes/frees and only makes them visible on `commit`.
+/// A single serialized write transaction. Buffers page writes/frees and
+/// only makes them visible on `commit`.
 pub struct WriteTxn<'a, IO: PageIo> {
     store: &'a Store<IO>,
     guard: MutexGuard<'a, WriterState>,
@@ -220,7 +219,7 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
     }
 
     /// Allocates a page id, preferring free-list reuse over extending
-    /// the file (R4.3).
+    /// the file.
     pub fn alloc(&mut self) -> PageId {
         if let Some(id) = self.guard.free_list.pop() {
             return id;
@@ -234,22 +233,20 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
         self.writes.push((id, page.to_bytes(id, self.page_size())));
     }
 
-    /// Marks a page as orphaned by this write (R2.1: the old page along
-    /// the copied path). Not immediately reusable — see `commit`.
+    /// Marks a page as orphaned by this write (the old page along the
+    /// copied path). Not immediately reusable — see `commit`.
     pub fn free(&mut self, id: PageId) {
         self.freed.push(id);
     }
 
-    /// The copy-on-write commit protocol (R2.2, R2.3, R4.2):
+    /// The copy-on-write commit protocol:
     /// 1. Apply buffered page writes.
     /// 2. Fold this transaction's frees into `pending_free`.
-    /// 3. Quiescence gate: only promote `pending_free` into the
-    ///    reusable `free_list` if no reader is currently active — a
-    ///    page can only be reused once no reader could still observe
-    ///    it, and an observed reader count of zero is a sufficient
-    ///    (if conservative) proof of that.
+    /// 3. Quiescence gate: only promote `pending_free` into the reusable
+    ///    `free_list` if no reader is currently active — a zero reader
+    ///    count is sufficient proof no one can still observe those pages.
     /// 4. Persist the free list to its on-disk chain.
-    /// 5. Persist metadata (R2.3: updated in place, not COW).
+    /// 5. Persist metadata (updated in place, not COW).
     /// 6. Sync, then publish the new root via a single atomic store.
     pub fn commit(&mut self, new_root: PageId) {
         for (id, bytes) in &self.writes {
@@ -278,28 +275,20 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
         self.store.root.store(new_root, Ordering::SeqCst);
     }
 
-    /// Persists the free list to its dedicated on-disk chain (R2.3:
-    /// metadata, updated in place — not COW). Writes the UNION of
-    /// `free_list` and `pending_free`, not just `free_list`: safe
-    /// because a fresh process start always begins with `readers==0`
-    /// (R4.2's "a reader that could have observed it" cannot survive a
-    /// process boundary), so anything still pending at the last
-    /// shutdown is unconditionally reclaimable by whoever reopens next.
-    /// This process's own in-memory split — still gated by the live
-    /// quiescence check in `commit` — is untouched; only what's written
-    /// to disk is widened. This fully closes the free-list durability
-    /// gap (pages leaked if the process exited mid-batch), not just
-    /// narrows it.
+    /// Persists the free list to its dedicated on-disk chain (metadata,
+    /// updated in place — not COW). Writes the union of `free_list` and
+    /// `pending_free`, not just `free_list`: a fresh process always
+    /// starts with `readers == 0`, so anything still pending at the last
+    /// shutdown is safely reclaimable by whoever reopens next. Only the
+    /// on-disk copy is widened this way — the in-memory split is
+    /// untouched and stays gated by `commit`'s live quiescence check.
     ///
-    /// Storage pages for the chain are bump-allocated only, never
-    /// popped from `free_list` — popping the very list being serialized
-    /// this commit would be a fixed-point problem (popping changes the
-    /// list's length, which changes how many storage pages are needed,
-    /// which changes what you'd need to pop...). Once allocated, a
-    /// storage page is reused (overwritten in place) forever after,
-    /// even if the list later shrinks — a small, bounded, permanent
-    /// cost in exchange for a design simple enough to obviously be
-    /// correct.
+    /// Storage pages for the chain are bump-allocated only, never popped
+    /// from `free_list` — popping the very list being serialized would
+    /// be a fixed-point problem (popping changes the list's length,
+    /// which changes how many pages it needs...). A storage page, once
+    /// allocated, stays reused forever even if the list later shrinks: a
+    /// small permanent cost for a design that's obviously correct.
     fn persist_free_list(&mut self) -> (PageId, u64) {
         let page_size = self.page_size();
         let cap = free_list_capacity(page_size).max(1);
@@ -410,10 +399,8 @@ mod tests {
         );
     }
 
-    /// Closes the durability gap DESIGN.md used to document: the free
-    /// list must survive a close/reopen cycle, not reset to empty, and
-    /// the recovered ids must actually be usable (not just present in a
-    /// count).
+    /// The free list must survive a close/reopen cycle, not reset to
+    /// empty, and the recovered ids must actually be usable.
     #[test]
     fn free_list_survives_reopen() {
         let io = MemoryPageIo::new(4096);
@@ -457,22 +444,18 @@ mod tests {
         }
     }
 
-    /// Forces the free list to outgrow one free-list page's capacity,
-    /// so recovery must actually walk the `next_page_id` chain — catches
-    /// a "forgot to follow `next`" bug specifically (a length-capped-at
-    /// one-page recovery would silently under-count instead).
+    /// Forces the free list to outgrow one free-list page's capacity, so
+    /// recovery must actually walk the `next_page_id` chain — catches a
+    /// "forgot to follow `next`" bug that a one-page recovery would
+    /// silently under-count instead of failing outright.
     #[test]
     fn free_list_spans_multiple_chained_pages() {
         // Sequential puts alone can't build a backlog bigger than one
-        // free-list page: each put frees ~tree-height pages but also
-        // *allocates* ~tree-height pages (preferring the free list
-        // first), so free_list_len() naturally plateaus at a small,
-        // roughly constant size — that's the reclamation scheme working
-        // as intended (see repeated_overwrites_reuse_pages_via_free_list).
-        // To force a real backlog, hold a reader open: the quiescence
-        // gate then can't promote anything, so every commit's frees
-        // pile up in pending_free instead of being drained by the next
-        // commit's allocs.
+        // free-list page: each put frees and re-allocates about the same
+        // number of pages, so free_list_len() naturally plateaus. To
+        // force a real backlog, hold a reader open — the quiescence gate
+        // then can't promote anything, so frees pile up in pending_free
+        // instead of being drained by the next commit's allocs.
         let page_size = 128;
         let cap = free_list_capacity(page_size);
         let io = MemoryPageIo::new(page_size);

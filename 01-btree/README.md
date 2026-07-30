@@ -158,3 +158,12 @@ let store = StorageEngine::in_memory(4096);
 - **R7.4** (дизайн-нота) - `DESIGN.md` в корені репозиторію.
 
 Запустити все разом: `cargo test`. На момент написання цього README - 29 unit + 5 integration + 2 concurrency тестів, всі зелені (плюс один допоміжний `tests/sandbox.rs`, який не рахується як deliverable-тест, а просто ручний прогін з принтами для дебагу).
+
+
+## Deliverables and testing
+- **R7.1** - Unit tests for tree correctness against an in-memory backend: insert, upsert, leaf split, internal split, multi-level growth
+юніт-тести знаходяться в `src/storage/engine.rs`, модуль `tests`
+- **R7.2** Integration tests against the real mmap file backend, including reopening the file and verifying the durability of previously inserted data.
+Інтеграційні тести знаходяться в `tests/mmap_integration.rs`
+- **R7.3** Concurrency tests: many concurrent readers during ongoing writes (no lost or torn reads), plus a test that repeatedly overwrites keys and asserts the file size stays bounded (proving space reuse).
+`tests/concurrency.rs`

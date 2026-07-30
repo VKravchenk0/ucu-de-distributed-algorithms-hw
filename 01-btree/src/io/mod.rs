@@ -5,9 +5,9 @@ pub mod in_memory_backend;
 /// otherwise used as a "null" sentinel (e.g. "no free list yet").
 pub type PageId = u64;
 
-/// The only swappable-backend boundary (R3.5): plain byte I/O over
-/// fixed-size pages. All B+Tree/COW/free-list/concurrency policy lives
-/// once, generically, in `Store<IO>` — not duplicated per backend.
+/// Plain byte I/O over fixed-size pages — the only swappable-backend
+/// boundary. All B+Tree/COW/free-list/concurrency policy lives once,
+/// generically, in `Store<IO>`, not duplicated per backend.
 pub trait PageIo: Send + Sync {
     fn page_size(&self) -> usize;
     /// Always returns exactly `page_size()` bytes; an unwritten page

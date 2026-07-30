@@ -1,4 +1,4 @@
-//! R7.3: thread-safety tests against the real mmap file backend.
+//! Thread-safety tests against the real mmap file backend.
 
 mod common;
 
@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use common::TempPath;
 use hw_btree::StorageEngine;
 
-/// R4.1/R7.3: repeatedly overwriting the same keys must not grow the
-/// file unboundedly — the free list must actually be getting reused.
+/// Repeatedly overwriting the same keys must not grow the file
+/// unboundedly — the free list must actually be getting reused.
 #[test]
 fn repeated_overwrites_keep_file_size_bounded() {
     let tmp = TempPath::new("bounded_growth");
@@ -42,10 +42,10 @@ fn repeated_overwrites_keep_file_size_bounded() {
     );
 }
 
-/// R5.1/R5.2/R7.3: many concurrent readers running while a writer keeps
-/// updating the same keys must never observe a torn/garbled value (COW
-/// correctness), and must complete a large number of reads rather than
-/// stalling — proving they aren't blocked by the writer.
+/// Many concurrent readers running while a writer keeps updating the
+/// same keys must never observe a torn/garbled value (COW correctness),
+/// and must complete a large number of reads rather than stalling —
+/// proving they aren't blocked by the writer.
 #[test]
 fn concurrent_readers_never_see_torn_writes_and_are_not_blocked() {
     let tmp = TempPath::new("concurrent_readers");
@@ -109,7 +109,7 @@ fn concurrent_readers_never_see_torn_writes_and_are_not_blocked() {
 
     // Over 300ms with 8 reader threads, a large number of reads should
     // complete; a handful would indicate readers stuck waiting on the
-    // writer's lock rather than proceeding wait-free (R5.2).
+    // writer's lock rather than proceeding wait-free.
     assert!(
         total_reads > 1000,
         "only {total_reads} reads completed in {elapsed:?} across 8 threads — readers may be \

@@ -8,11 +8,10 @@ use crate::page::{Error, Page, check_limits};
 use crate::storage::store::{ReadGuard, WriteTxn};
 
 /// The result of inserting into a node: either it still fits in one
-/// page, or it overflowed and had to split (R1.6). A `Split` always
-/// carries exactly one promoted separator key (never today's old
-/// design's up-to-3-piece split) — the caller either absorbs it into a
-/// copy of the parent or, if that overflows too, splits again and keeps
-/// propagating upward.
+/// page, or it overflowed and had to split. A `Split` always carries
+/// exactly one promoted separator key — the caller either absorbs it
+/// into a copy of the parent or, if that overflows too, splits again and
+/// keeps propagating upward.
 enum InsertResult {
     Single(Page),
     Split {
@@ -87,12 +86,12 @@ fn insert_internal<IO: PageIo>(
     }
 }
 
-/// put() (R1.2, R1.4): insert or upsert a key, copying every node on
-/// the root-to-leaf path (R2.1) and growing the tree by one level if
-/// the root splits (R1.6). An empty root leaf needs no special-casing:
-/// `leaf_search` on zero entries returns `Err(0)` (the only possible
-/// insertion point), so `insert_leaf` builds a correct 1-entry leaf on
-/// the very first `put` through the same path every later `put` uses.
+/// Inserts or upserts a key, copying every node on the root-to-leaf path
+/// and growing the tree by one level if the root splits. An empty root
+/// leaf needs no special-casing: `leaf_search` on zero entries returns
+/// `Err(0)`, the only possible insertion point, so `insert_leaf` builds
+/// a correct 1-entry leaf on the very first `put` through the same path
+/// every later `put` uses.
 pub fn put<IO: PageIo>(txn: &mut WriteTxn<IO>, key: &[u8], val: &[u8]) -> Result<(), Error> {
     let page_size = txn.page_size();
     check_limits(page_size, key, val)?;
@@ -116,9 +115,7 @@ pub fn put<IO: PageIo>(txn: &mut WriteTxn<IO>, key: &[u8], val: &[u8]) -> Result
             right,
         } => {
             // The root split: grow the tree by one level with a brand
-            // new, always-minimal root (1 key, 2 children) — no
-            // "3-way split, never re-split" special case needed (see
-            // page::max_kv_size's doc comment).
+            // new, always-minimal root (1 key, 2 children).
             let lid = txn.alloc();
             txn.write(lid, left);
             let rid = txn.alloc();
@@ -137,11 +134,10 @@ pub fn put<IO: PageIo>(txn: &mut WriteTxn<IO>, key: &[u8], val: &[u8]) -> Result
     Ok(())
 }
 
-/// get() (R1.4): returns the value for `key`, or `None` if absent or
-/// the store is empty (an empty root leaf's `leaf_search` naturally
-/// returns `Err(0)`, which maps to `None`). Never blocks on a writer
-/// (R5.2) — `view` only ever performs wait-free atomic reads plus plain
-/// page fetches.
+/// Returns the value for `key`, or `None` if absent or the store is
+/// empty (an empty root leaf's `leaf_search` naturally returns
+/// `Err(0)`, which maps to `None`). Never blocks on a writer — `view`
+/// only ever performs wait-free atomic reads plus plain page fetches.
 pub fn get<IO: PageIo>(view: &ReadGuard<IO>, key: &[u8]) -> Option<Vec<u8>> {
     let mut page = view.read(view.root());
     loop {
