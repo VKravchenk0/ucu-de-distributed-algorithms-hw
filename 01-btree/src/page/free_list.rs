@@ -8,9 +8,7 @@ pub const FREE_LIST_HEADER: u16 = 19;
 ///
 /// | tag(1B)=0x03 | page id(8B) | next page id(8B) | count(2B) | free page ids... | unused |
 ///
-/// `next page id == 0` marks the end of the chain. Entries are
-/// fixed-width `u64`s, so no offset cache is needed (unlike leaf/internal
-/// pages).
+/// `next page id == 0` marks the end of the chain
 pub fn free_list_capacity(page_size: usize) -> usize {
     (page_size - FREE_LIST_HEADER as usize) / 8
 }

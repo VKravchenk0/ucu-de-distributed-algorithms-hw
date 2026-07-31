@@ -3,8 +3,7 @@ use crate::page::Page;
 use crate::storage::store::ReadGuard;
 
 /// Recursively prints every page reachable from the tree rooted at
-/// `view.root()`, in pre-order (a node before its children) so the
-/// output reads top-to-bottom the same way the tree would be drawn.
+/// `view.root()`, in pre-order (a node before its children)
 fn walk<IO: PageIo>(view: &ReadGuard<IO>, id: PageId, depth: usize, raw: bool) {
     let page = view.read(id);
     let indent = "  ".repeat(depth);
@@ -39,9 +38,7 @@ pub fn print_bytes<IO: PageIo>(view: &ReadGuard<IO>) {
     walk(view, view.root(), 0, true);
 }
 
-/// Dumps a page's bytes as a hex/ascii gutter, 16 bytes per line (like
-/// `xxd`) — no interpretation, just the raw contents. Shared across
-/// page kinds since it's format-agnostic.
+/// Dumps a page's bytes as a hex/ascii gutter, 16 bytes per line (like `xxd`)
 fn print_raw(bytes: &[u8]) {
     for (i, chunk) in bytes.chunks(16).enumerate() {
         let offset = i * 16;

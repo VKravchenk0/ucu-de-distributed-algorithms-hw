@@ -1,5 +1,4 @@
-//! Integration tests against the real mmap file backend, exercised only
-//! through the public API (`StorageEngine::open`/`put`/`get`).
+//! Integration tests against the mmap file backend
 
 mod common;
 
@@ -28,7 +27,7 @@ fn put_persists_across_close_and_reopen() {
                 .unwrap();
         }
         store.print_tree();
-    } // dropped: mmap unmapped, file closed
+    }
 
     let reopened = StorageEngine::open(tmp.as_path(), 4096).unwrap();
     for i in 0..50 {

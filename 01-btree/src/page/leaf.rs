@@ -21,8 +21,8 @@ pub struct LeafNode {
 }
 
 impl LeafNode {
-    /// A fresh, empty node under construction (COW: never mutates a
-    /// source node in place). `capacity_hint` sizes the backing buffer
+    /// A fresh, empty node under construction. 
+    /// `capacity_hint` sizes the backing buffer
     /// up front; callers building a possibly-oversized pre-split result
     /// should pass `2*page_size` to avoid reallocation mid-build.
     pub fn empty(capacity_hint: usize) -> Self {
@@ -87,8 +87,7 @@ impl LeafNode {
     }
 
     /// Appends one entry. Keys must be pushed in strictly increasing
-    /// order (this is always building a fresh, sorted node from sorted
-    /// sources) — a cheap guard against a silently-wrong binary search
+    /// order — a cheap guard against a silently-wrong binary search
     /// later.
     pub fn push(&mut self, key: &[u8], val: &[u8]) {
         debug_assert!(
@@ -110,10 +109,6 @@ impl LeafNode {
         }
     }
 
-    /// Debug/manual-inspection only. Prints the page's used/total size
-    /// plus the byte range of each on-disk section (header, entries,
-    /// unused) so the layout comment above can be checked against real
-    /// output.
     pub fn print_pretty(&self, page_size: usize) {
         let header_end = LEAF_HEADER as usize;
         let entries_end = header_end + self.entries.len();
@@ -172,8 +167,7 @@ pub fn leaf_search(node: &LeafNode, key: &[u8]) -> Result<u16, u16> {
     Err(lo as u16)
 }
 
-/// Builds a new leaf with `(key, val)` inserted at `idx` (from
-/// `leaf_search`'s `Err(idx)`).
+/// Builds a new leaf with `(key, val)` inserted at `idx`
 pub fn leaf_insert(old: &LeafNode, idx: u16, key: &[u8], val: &[u8]) -> LeafNode {
     let mut new = LeafNode::empty(2 * (old.nbytes() + key.len() + val.len() + 4));
     new.push_range(old, 0, idx);
@@ -182,9 +176,7 @@ pub fn leaf_insert(old: &LeafNode, idx: u16, key: &[u8], val: &[u8]) -> LeafNode
     new
 }
 
-/// Builds a new leaf with the entry at `idx` (from `leaf_search`'s
-/// `Ok(idx)`) replaced by `(key, val)` — `key` should equal
-/// `old.get_key(idx)`; only the value changes (upsert).
+/// Builds a new leaf with the entry at `idx`
 pub fn leaf_update(old: &LeafNode, idx: u16, key: &[u8], val: &[u8]) -> LeafNode {
     let mut new = LeafNode::empty(2 * (old.nbytes() + val.len() + 4));
     new.push_range(old, 0, idx);

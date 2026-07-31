@@ -30,9 +30,7 @@ pub enum DecodeError {
     /// No recognizable header at all — a fresh/empty backend, safe to
     /// bootstrap.
     NotAHeader,
-    /// A real header page, but from an incompatible format version — a
-    /// pre-existing file that must be rejected, not silently
-    /// re-bootstrapped over (that would destroy real data).
+    /// A real header page, but from an incompatible format version
     VersionMismatch { found: u32, expected: u32 },
 }
 
@@ -60,11 +58,6 @@ impl Header {
         buf
     }
 
-    /// `Err(NotAHeader)` for anything that isn't a header page at all —
-    /// a fresh/empty backend included, which the caller treats as
-    /// "bootstrap a new store". `Err(VersionMismatch)` for a real but
-    /// incompatible-version header, which the caller must treat as a
-    /// hard error rather than silently rebuilding.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         if bytes.len() < 49 || bytes[0] != PAGE_TYPE_HEADER || bytes[1..9] != FORMAT_SIGNATURE[..] {
             return Err(DecodeError::NotAHeader);

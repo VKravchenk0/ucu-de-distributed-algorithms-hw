@@ -40,14 +40,11 @@ struct WriterState {
     free_list: Vec<PageId>,
     pending_free: Vec<PageId>,
     /// The dedicated, permanent chain of pages that store the free list
-    /// itself on disk — always bump-allocated, never popped from
-    /// `free_list` (see `WriteTxn::persist_free_list`).
     free_list_page_ids: Vec<PageId>,
 }
 
 /// Owns a `PageIo` backend and the COW commit/reclamation/concurrency
-/// state built on top of it — generic over the backend so this logic is
-/// written and tested once, not duplicated per backend.
+/// state built on top of it
 pub struct Store<IO: PageIo> {
     io: IO,
     root: AtomicU64,                // the single atomically-published root
@@ -55,10 +52,6 @@ pub struct Store<IO: PageIo> {
     write_lock: Mutex<WriterState>, // single-writer serialization
 }
 
-/// Walks the on-disk free-list chain starting at `head` (`0` = empty),
-/// collecting every free page id and every chain-storage page id
-/// visited (so they're recognized as reusable storage, not leaked, on
-/// the next commit).
 fn load_free_list_chain<IO: PageIo>(io: &IO, head: PageId) -> (Vec<PageId>, Vec<PageId>) {
     let (mut free_list, mut page_ids) = (Vec::new(), Vec::new());
     let mut cur = head;
@@ -73,16 +66,11 @@ fn load_free_list_chain<IO: PageIo>(io: &IO, head: PageId) -> (Vec<PageId>, Vec<
 
 impl<IO: PageIo> Store<IO> {
     /// Reads (and validates) the header page, or bootstraps a fresh store
-    /// with an empty leaf root. Works identically for a brand-new backend
-    /// and a real reopened file — the memory backend goes through the
-    /// exact same path, so this logic is exercised long before mmap
-    /// exists.
+    /// with an empty leaf root.
     ///
     /// A backend with no valid header page at all is safe to bootstrap.
     /// A backend with a *valid* header page whose page_size or format
-    /// version disagrees with the caller's request is a real error, not
-    /// a fresh backend — silently re-bootstrapping there would clobber
-    /// existing data instead of reporting the mismatch.
+    /// version disagrees with the caller's request is an error.
     pub fn open_or_create(io: IO) -> Result<Self, OpenError> {
         let page_size = io.page_size();
         let header = match Header::from_bytes(&io.read_page(HEADER_PAGE_ID)) {
@@ -275,20 +263,6 @@ impl<IO: PageIo> WriteTxn<'_, IO> {
         self.store.root.store(new_root, Ordering::SeqCst);
     }
 
-    /// Persists the free list to its dedicated on-disk chain (metadata,
-    /// updated in place — not COW). Writes the union of `free_list` and
-    /// `pending_free`, not just `free_list`: a fresh process always
-    /// starts with `readers == 0`, so anything still pending at the last
-    /// shutdown is safely reclaimable by whoever reopens next. Only the
-    /// on-disk copy is widened this way — the in-memory split is
-    /// untouched and stays gated by `commit`'s live quiescence check.
-    ///
-    /// Storage pages for the chain are bump-allocated only, never popped
-    /// from `free_list` — popping the very list being serialized would
-    /// be a fixed-point problem (popping changes the list's length,
-    /// which changes how many pages it needs...). A storage page, once
-    /// allocated, stays reused forever even if the list later shrinks: a
-    /// small permanent cost for a design that's obviously correct.
     fn persist_free_list(&mut self) -> (PageId, u64) {
         let page_size = self.page_size();
         let cap = free_list_capacity(page_size).max(1);
@@ -399,8 +373,6 @@ mod tests {
         );
     }
 
-    /// The free list must survive a close/reopen cycle, not reset to
-    /// empty, and the recovered ids must actually be usable.
     #[test]
     fn free_list_survives_reopen() {
         let io = MemoryPageIo::new(4096);
@@ -444,18 +416,8 @@ mod tests {
         }
     }
 
-    /// Forces the free list to outgrow one free-list page's capacity, so
-    /// recovery must actually walk the `next_page_id` chain — catches a
-    /// "forgot to follow `next`" bug that a one-page recovery would
-    /// silently under-count instead of failing outright.
     #[test]
     fn free_list_spans_multiple_chained_pages() {
-        // Sequential puts alone can't build a backlog bigger than one
-        // free-list page: each put frees and re-allocates about the same
-        // number of pages, so free_list_len() naturally plateaus. To
-        // force a real backlog, hold a reader open — the quiescence gate
-        // then can't promote anything, so frees pile up in pending_free
-        // instead of being drained by the next commit's allocs.
         let page_size = 128;
         let cap = free_list_capacity(page_size);
         let io = MemoryPageIo::new(page_size);

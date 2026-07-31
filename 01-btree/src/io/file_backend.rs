@@ -14,8 +14,6 @@ use super::{PageId, PageIo};
 /// means an online resize, which isn't supported yet.
 const DEFAULT_MAX_SIZE: u64 = 1 << 30; // 1 GiB
 
-/// The real, file-backed `PageIo`: a fixed-size-page file, cached via
-/// `mmap`.
 pub struct MmapPageIo {
     file: File,
     mmap: MmapRaw,
@@ -102,9 +100,7 @@ impl MmapPageIo {
         // SAFETY: bounds-checked above; concurrent calls here can't race
         // because only the single serialized writer ever calls it, and a
         // concurrent `read_at` never targets a page a `write_at` could
-        // still be touching (copy-on-write: a page is written once, then
-        // never again in place; readers only ever reach pages via an
-        // already-published, immutable root).
+        // still be touching (copy-on-write).
         unsafe {
             std::ptr::copy_nonoverlapping(
                 bytes.as_ptr(),

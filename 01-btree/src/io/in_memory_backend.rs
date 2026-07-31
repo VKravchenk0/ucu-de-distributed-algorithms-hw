@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{PageId, PageIo};
 
-/// An in-memory `PageIo` backend — a real implementation, not test-only,
-/// so tree correctness can be exercised without a real file.
+/// An in-memory `PageIo` backend
 #[derive(Clone)]
 pub struct MemoryPageIo {
     page_size: usize,

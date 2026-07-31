@@ -70,12 +70,10 @@ impl InternalNode {
         self.id
     }
 
-    /// N separators.
     pub fn nkeys(&self) -> u16 {
         (self.key_start.len() - 1) as u16
     }
 
-    /// N+1 children.
     pub fn nchildren(&self) -> u16 {
         self.nkeys() + 1
     }
@@ -109,10 +107,6 @@ impl InternalNode {
         self.children.push(child);
     }
 
-    /// Debug/manual-inspection only. Prints the page's used/total size
-    /// plus the byte range of each on-disk section (header, keys,
-    /// children, unused) so the layout comment above can be checked
-    /// against real output.
     pub fn print_pretty(&self, page_size: usize) {
         let header_end = INTERNAL_HEADER as usize;
         let keys_end = header_end + self.keys.len();
@@ -165,11 +159,6 @@ impl InternalNode {
     }
 }
 
-/// Child to descend into for `key`: the count of separator keys `<= key`
-/// (an upper-bound/partition-point search).
-///
-/// Boundary table for keys `[b,d,f]`, children `c0..c3`:
-/// `a->0, b->1, c->1, d->2, e->2, f->3, z->3`.
 pub fn internal_child_index(node: &InternalNode, key: &[u8]) -> u16 {
     let (mut lo, mut hi) = (0u16, node.nkeys());
     while lo < hi {
@@ -183,9 +172,6 @@ pub fn internal_child_index(node: &InternalNode, key: &[u8]) -> u16 {
     lo
 }
 
-/// Copies `node` with `children[idx]` swapped for `new_child`. Keys are
-/// untouched, so the result is byte-for-byte the same size as `node` —
-/// a `Single` child result can therefore never make the parent overflow.
 pub fn internal_replace_child(node: &InternalNode, idx: u16, new_child: PageId) -> InternalNode {
     let mut new = InternalNode::empty(node.keys.len());
     for i in 0..node.nkeys() {

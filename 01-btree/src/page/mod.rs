@@ -13,10 +13,6 @@ pub const PAGE_TYPE_LEAF: u8 = 0x01;
 pub const PAGE_TYPE_INTERNAL: u8 = 0x02;
 pub const PAGE_TYPE_FREE_LIST: u8 = 0x03;
 
-/// A decoded B+Tree page: exactly one of the two node kinds a tree page
-/// can be. Free-list and header pages are metadata, not tree nodes, and
-/// aren't represented here — they're handled directly by
-/// `storage::store`.
 pub enum Page {
     Leaf(LeafNode),
     Internal(InternalNode),
@@ -58,13 +54,6 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// The largest combined key+value size that's always safe to insert.
-///
-/// Derived from the binding case: an internal node must always be able
-/// to hold 2 max-size separators + 3 children at once, so that when it
-/// overflows by one key, `internal_split_with_promotion` always finds a
-/// valid split point. Leaf entries share the same bound — a separator is
-/// just a bare leaf key with no value, so the internal-node case is the
-/// tighter constraint.
 pub fn max_kv_size(page_size: usize) -> usize {
     page_size.saturating_sub(INTERNAL_HEADER as usize + 28) / 2
 }
