@@ -6,8 +6,7 @@ pub mod in_memory_backend;
 pub type PageId = u64;
 
 /// Plain byte I/O over fixed-size pages — the only swappable-backend
-/// boundary. All B+Tree/COW/free-list/concurrency policy lives once,
-/// generically, in `Store<IO>`, not duplicated per backend.
+/// boundary.
 pub trait PageIo: Send + Sync {
     fn page_size(&self) -> usize;
     /// Always returns exactly `page_size()` bytes; an unwritten page
@@ -15,7 +14,7 @@ pub trait PageIo: Send + Sync {
     fn read_page(&self, id: PageId) -> Vec<u8>;
     /// `bytes.len()` must equal `page_size()`.
     fn write_page(&self, id: PageId, bytes: &[u8]);
-    /// Durably flushes prior writes (a no-op for the in-memory backend).
+    /// Durably flushes prior writes
     fn sync(&self);
 }
 

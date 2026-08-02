@@ -11,7 +11,7 @@ pub const HEADER_PAGE_ID: PageId = 0;
 /// size, and points at the current root and free-list chain. Updated in
 /// place on each commit — metadata isn't COW.
 ///
-/// Layout: type tag(1B)=0x2A | magic(8B) | version(4B) | page_size(4B) |
+/// Layout: type tag(1B)=0x2A | format_signature(8B) | version(4B) | page_size(4B) |
 /// root_id(8B) | next_page_id(8B) | free_list_head(8B) | free_count(8B)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {

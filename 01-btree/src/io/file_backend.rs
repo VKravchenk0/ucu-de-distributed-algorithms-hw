@@ -82,9 +82,6 @@ impl MmapPageIo {
             "read_at out of mapped range"
         );
         let mut buf = vec![0u8; len];
-        // SAFETY: bounds-checked above; `offset..offset+len` is within
-        // the mapping, and this is a plain byte copy through raw
-        // pointers, never forming a `&[u8]`/`&mut [u8]` over the mapping.
         unsafe {
             std::ptr::copy_nonoverlapping(self.mmap.as_ptr().add(offset), buf.as_mut_ptr(), len);
         }
@@ -97,10 +94,6 @@ impl MmapPageIo {
             offset + bytes.len() <= self.mmap.len(),
             "write_at out of mapped range"
         );
-        // SAFETY: bounds-checked above; concurrent calls here can't race
-        // because only the single serialized writer ever calls it, and a
-        // concurrent `read_at` never targets a page a `write_at` could
-        // still be touching (copy-on-write).
         unsafe {
             std::ptr::copy_nonoverlapping(
                 bytes.as_ptr(),
