@@ -1,0 +1,34 @@
+pub mod file_backend;
+pub mod in_memory_backend;
+
+/// Identifies a fixed-size page. `0` is reserved for the header page and
+/// otherwise used as a "null" sentinel (e.g. "no free list yet").
+pub type PageId = u64;
+
+/// Plain byte I/O over fixed-size pages — the only swappable-backend
+/// boundary.
+pub trait PageIo: Send + Sync {
+    fn page_size(&self) -> usize;
+    /// Always returns exactly `page_size()` bytes; an unwritten page
+    /// reads back as zeros (matching a freshly `ftruncate`'d file).
+    fn read_page(&self, id: PageId) -> Vec<u8>;
+    /// `bytes.len()` must equal `page_size()`.
+    fn write_page(&self, id: PageId, bytes: &[u8]);
+    /// Durably flushes prior writes
+    fn sync(&self);
+}
+
+impl PageIo for Box<dyn PageIo> {
+    fn page_size(&self) -> usize {
+        (**self).page_size()
+    }
+    fn read_page(&self, id: PageId) -> Vec<u8> {
+        (**self).read_page(id)
+    }
+    fn write_page(&self, id: PageId, bytes: &[u8]) {
+        (**self).write_page(id, bytes)
+    }
+    fn sync(&self) {
+        (**self).sync()
+    }
+}

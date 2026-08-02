@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cargo test *)",
+      "Bash(cargo run *)",
+      "Bash(cargo build *)",
+      "Bash(cargo clippy *)",
+      "Bash(rustc --version)",
+      "Bash(cargo fmt *)",
+      "Read(//workspaces/ucu-de-distributed-algorithms-hw/**)",
+      "Bash(git -C /workspaces/ucu-de-distributed-algorithms-hw/01-btree log --oneline -15)",
+      "Bash(git -C /workspaces/ucu-de-distributed-algorithms-hw/01-btree status)",
+      "Bash(git -C /workspaces/ucu-de-distributed-algorithms-hw/01-btree mv src/meta.rs src/header.rs)",
+      "Bash(cargo add *)",
+      "Bash(git checkout *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(rm -f /tmp/hw_btree_demo.db)",
+      "Bash(rm -rf /workspaces/ucu-de-distributed-algorithms-hw/01-btree/examples *)",
+      "Bash(xargs -I{} echo {})"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}
