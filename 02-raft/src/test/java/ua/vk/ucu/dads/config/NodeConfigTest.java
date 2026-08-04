@@ -2,43 +2,49 @@ package ua.vk.ucu.dads.config;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NodeConfigTest {
 
     @Test
-    void defaultsWhenEnvEmpty() {
-        NodeConfig config = NodeConfig.from(Map.of());
-
-        assertFalse(config.isMaster());
-        assertTrue(config.secondaryAddresses().isEmpty());
-        assertEquals("", config.masterUrl());
+    void requiresNodeId() {
+        assertThrows(IllegalArgumentException.class, () -> NodeConfig.from(Map.of()));
     }
 
     @Test
-    void parsesMasterWithSecondariesTrimmingAndDroppingEmpties() {
-        NodeConfig config = NodeConfig.from(Map.of(
-                "IS_MASTER", "true",
-                "SECONDARY_ADDRESSES", "host1:6001, host2:6001 ,,"
-        ));
+    void parsesNodeIdWithNoPeers() {
+        NodeConfig config = NodeConfig.from(Map.of("NODE_ID", "1"));
 
-        assertTrue(config.isMaster());
-        assertEquals(List.of("host1:6001", "host2:6001"), config.secondaryAddresses());
+        assertEquals(1, config.nodeId());
+        assertTrue(config.peers().isEmpty());
+        assertEquals(1, config.clusterSize());
+        assertEquals(1, config.majority());
     }
 
     @Test
-    void parsesSecondaryWithMasterUrl() {
+    void parsesPeersTrimmingAndDroppingEmptyEntries() {
         NodeConfig config = NodeConfig.from(Map.of(
-                "IS_MASTER", "false",
-                "MASTER_URL", "http://master:7000"
+                "NODE_ID", "1",
+                "PEERS", " 2=host2:6001:7000 , 3=host3:6001:7000 ,,"
         ));
 
-        assertFalse(config.isMaster());
-        assertEquals("http://master:7000", config.masterUrl());
+        assertEquals(1, config.nodeId());
+        assertEquals(2, config.peers().size());
+        assertEquals(new NodeConfig.PeerInfo("host2:6001", "http://host2:7000"), config.peers().get(2));
+        assertEquals(new NodeConfig.PeerInfo("host3:6001", "http://host3:7000"), config.peers().get(3));
+        assertEquals(3, config.clusterSize());
+        assertEquals(2, config.majority());
+    }
+
+    @Test
+    void rejectsMalformedPeerEntry() {
+        assertThrows(IllegalArgumentException.class, () -> NodeConfig.from(Map.of(
+                "NODE_ID", "1",
+                "PEERS", "2=host2:6001"
+        )));
     }
 }

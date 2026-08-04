@@ -6,6 +6,7 @@ import io.javalin.Javalin;
 import ua.vk.ucu.dads.clientapi.HttpApi;
 import ua.vk.ucu.dads.config.NodeConfig;
 import ua.vk.ucu.dads.log.LogStore;
+import ua.vk.ucu.dads.raft.RaftNode;
 import ua.vk.ucu.dads.replication.ReplicationClient;
 import ua.vk.ucu.dads.replication.ReplicationServer;
 
@@ -17,21 +18,24 @@ public class Main {
         NodeConfig config = NodeConfig.fromEnv();
         LogStore logStore = new LogStore();
 
+        ReplicationClient replicationClient = new ReplicationClient(config.peers());
+        RaftNode raftNode = new RaftNode(config, logStore, replicationClient);
+
         Server grpcServer = ServerBuilder.forPort(GRPC_PORT)
-                .addService(new ReplicationServer(logStore))
+                .addService(new ReplicationServer(raftNode))
                 .build()
                 .start();
 
-        ReplicationClient replicationClient = new ReplicationClient(config.secondaryAddresses());
+        createClientApi(raftNode, config, logStore, replicationClient);
 
-        createClientApi(config, logStore, replicationClient);
+        raftNode.start();
 
         grpcServer.awaitTermination();
     }
 
-    private static void createClientApi(NodeConfig config, LogStore logStore, ReplicationClient replicationClient) {
+    private static void createClientApi(RaftNode raftNode, NodeConfig config, LogStore logStore, ReplicationClient replicationClient) {
         Javalin app = Javalin.create();
-        new HttpApi(config, logStore, replicationClient).register(app);
+        new HttpApi(raftNode, config, logStore, replicationClient).register(app);
         app.start(HTTP_PORT);
     }
 }

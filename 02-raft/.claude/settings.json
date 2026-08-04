@@ -47,7 +47,11 @@
       "Bash(mvn -q -o compile test-compile)",
       "Bash(mvn -q -o test -Dtest=NodeConfigTest,LogStoreTest)",
       "Bash(mvn -q -DskipTests compile)",
-      "Bash(mvn -q test)"
+      "Bash(mvn -q test)",
+      "Bash(mvn -q -o compile)",
+      "Bash(mvn -q -o test-compile)",
+      "Bash(mvn -q -o test)",
+      "Bash(mvn -o verify)"
     ]
   }
 }
