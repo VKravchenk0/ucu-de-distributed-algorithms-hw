@@ -49,6 +49,5 @@
       "Bash(mvn -q -DskipTests compile)",
       "Bash(mvn -q test)"
     ]
-    // "defaultMode": "auto"
   }
 }
