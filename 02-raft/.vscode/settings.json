@@ -1,0 +1,7 @@
+{
+  "java.test.config": {
+    "env": {
+      "TESTCONTAINERS_RYUK_DISABLED": "true"
+    }
+  }
+}
