@@ -6,7 +6,8 @@
       "Bash(mvn *)",
       "Bash(find /workspaces/ucu-de-distributed-algorithms-hw -maxdepth 3 -iname \".mcp.json\" 2>/dev/null; echo \"---\"; cat /workspaces/ucu-de-distributed-algorithms-hw/02-raft/.mcp.json 2>/dev/null; echo \"---which claude---\"; which claude)",
       "Bash(cat /workspaces/ucu-de-distributed-algorithms-hw/01-btree/.mcp.json)",
-      "Read(//workspaces/ucu-de-distributed-algorithms-hw/01-btree/**)"
+      "Read(//workspaces/ucu-de-distributed-algorithms-hw/01-btree/**)",
+      "Bash(mvn archetype:generate -DgroupId=ua.vk.ucu.dads -DartifactId=hw2-raft -DarchetypeArtifactId=maven-archetype-quickstart -DinteractiveMode=false)"
     ],
     "defaultMode": "auto"
   }
