@@ -1,0 +1,51 @@
+{
+  "name": "Java 25 DevContainer",
+
+  // "build": {
+  //   "dockerfile": "Dockerfile"
+  // },
+
+  "image": "mcr.microsoft.com/devcontainers/java:25",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": {},
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "none",
+      "installMaven": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    // "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false
+    },
+
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // "vscjava.vscode-java-pack",
+        // "vscjava.vscode-maven",
+        // "redhat.java",
+        // "vscjava.vscode-java-debug",
+        // "vscjava.vscode-java-test",
+        // "usernamehw.errorlens"
+         "vscjava.vscode-java-pack",
+        "vscjava.vscode-maven",
+        "usernamehw.errorlens"
+      ],
+      "settings": {
+        "java.configuration.updateBuildConfiguration": "automatic"
+      }
+    }
+  },
+
+  "mounts": [
+    "source=claude-code-config,target=/home/vscode/.claude,type=volume"
+  ],
+
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude",
+
+  "remoteUser": "vscode"
+}
