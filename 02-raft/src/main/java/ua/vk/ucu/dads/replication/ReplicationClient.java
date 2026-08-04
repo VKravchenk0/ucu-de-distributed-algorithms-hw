@@ -2,7 +2,7 @@ package ua.vk.ucu.dads.replication;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import ua.vk.ucu.dads.grpc.AppendMessageRequest;
+import ua.vk.ucu.dads.grpc.RequestAppendEntriesRPC;
 import ua.vk.ucu.dads.grpc.ReplicationServiceGrpc;
 
 import java.util.List;
@@ -22,9 +22,14 @@ public class ReplicationClient {
     }
 
     public void replicateToAllSecondaries(String message) {
-        AppendMessageRequest request = AppendMessageRequest.newBuilder().setMessage(message).build();
+        RequestAppendEntriesRPC.LogEntry entry = RequestAppendEntriesRPC.LogEntry.newBuilder()
+                .setCommand(message)
+                .build();
+        RequestAppendEntriesRPC request = RequestAppendEntriesRPC.newBuilder()
+                .addEntries(entry)
+                .build();
         for (var stub : stubs) {
-            stub.appendMessage(request);
+            stub.appendEntries(request);
         }
     }
 
