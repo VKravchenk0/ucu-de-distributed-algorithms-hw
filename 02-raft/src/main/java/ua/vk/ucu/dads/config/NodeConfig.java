@@ -1,4 +1,4 @@
-package ua.vk.ucu.dads;
+package ua.vk.ucu.dads.config;
 
 import java.util.Arrays;
 import java.util.List;

@@ -1,6 +1,9 @@
-package ua.vk.ucu.dads;
+package ua.vk.ucu.dads.clientapi;
 
 import io.javalin.Javalin;
+import ua.vk.ucu.dads.config.NodeConfig;
+import ua.vk.ucu.dads.log.LogEntry;
+import ua.vk.ucu.dads.log.LogStore;
 import ua.vk.ucu.dads.replication.ReplicationClient;
 
 import java.util.Map;

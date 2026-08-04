@@ -1,4 +1,4 @@
-package ua.vk.ucu.dads;
+package ua.vk.ucu.dads.log;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;

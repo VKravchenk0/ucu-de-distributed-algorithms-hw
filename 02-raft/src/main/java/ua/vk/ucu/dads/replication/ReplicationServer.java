@@ -1,8 +1,8 @@
 package ua.vk.ucu.dads.replication;
 
 import io.grpc.stub.StreamObserver;
-import ua.vk.ucu.dads.LogEntry;
-import ua.vk.ucu.dads.LogStore;
+import ua.vk.ucu.dads.log.LogEntry;
+import ua.vk.ucu.dads.log.LogStore;
 import ua.vk.ucu.dads.grpc.AppendMessageRequest;
 import ua.vk.ucu.dads.grpc.AppendMessageResponse;
 import ua.vk.ucu.dads.grpc.ReplicationServiceGrpc;

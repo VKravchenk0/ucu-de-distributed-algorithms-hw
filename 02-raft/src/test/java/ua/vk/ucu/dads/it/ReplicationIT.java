@@ -5,7 +5,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
-import ua.vk.ucu.dads.LogEntry;
+import ua.vk.ucu.dads.log.LogEntry;
 
 import java.net.URI;
 import java.net.http.HttpClient;

@@ -3,6 +3,9 @@ package ua.vk.ucu.dads;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.javalin.Javalin;
+import ua.vk.ucu.dads.clientapi.HttpApi;
+import ua.vk.ucu.dads.config.NodeConfig;
+import ua.vk.ucu.dads.log.LogStore;
 import ua.vk.ucu.dads.replication.ReplicationClient;
 import ua.vk.ucu.dads.replication.ReplicationServer;
 
@@ -21,10 +24,14 @@ public class Main {
 
         ReplicationClient replicationClient = new ReplicationClient(config.secondaryAddresses());
 
+        createClientApi(config, logStore, replicationClient);
+
+        grpcServer.awaitTermination();
+    }
+
+    private static void createClientApi(NodeConfig config, LogStore logStore, ReplicationClient replicationClient) {
         Javalin app = Javalin.create();
         new HttpApi(config, logStore, replicationClient).register(app);
         app.start(HTTP_PORT);
-
-        grpcServer.awaitTermination();
     }
 }

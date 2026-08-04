@@ -43,7 +43,9 @@
       "Bash(tee /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/a37d717e-ca37-4792-8d0e-41086e2fcd3d/scratchpad/verify4.log)",
       "Bash(curl -s -m 5 -o /dev/null -w 'via 172.17.0.1:49300: %{http_code}\\\\n' http://172.17.0.1:49300/)",
       "Bash(curl -s -m 5 -o /dev/null -w 'via 172.17.0.1:9090: %{http_code}\\\\n' http://172.17.0.1:9090/)",
-      "Bash(tee /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/a37d717e-ca37-4792-8d0e-41086e2fcd3d/scratchpad/verify5.log)"
+      "Bash(tee /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/a37d717e-ca37-4792-8d0e-41086e2fcd3d/scratchpad/verify5.log)",
+      "Bash(mvn -q -o compile test-compile)",
+      "Bash(mvn -q -o test -Dtest=NodeConfigTest,LogStoreTest)"
     ],
     "defaultMode": "auto"
   }
