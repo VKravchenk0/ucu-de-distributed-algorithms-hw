@@ -9,6 +9,7 @@ import ua.vk.ucu.dads.log.LogStore;
 import ua.vk.ucu.dads.raft.RaftNode;
 import ua.vk.ucu.dads.replication.ReplicationClient;
 import ua.vk.ucu.dads.replication.ReplicationServer;
+import ua.vk.ucu.dads.statemachine.StateMachine;
 
 public class Main {
     private static final int HTTP_PORT = 7000;
@@ -17,25 +18,26 @@ public class Main {
     public static void main(String[] args) throws Exception {
         NodeConfig config = NodeConfig.fromEnv();
         LogStore logStore = new LogStore();
+        StateMachine stateMachine = new StateMachine();
 
         ReplicationClient replicationClient = new ReplicationClient(config.peers());
-        RaftNode raftNode = new RaftNode(config, logStore, replicationClient);
+        RaftNode raftNode = new RaftNode(config, logStore, replicationClient, stateMachine);
 
         Server grpcServer = ServerBuilder.forPort(GRPC_PORT)
                 .addService(new ReplicationServer(raftNode))
                 .build()
                 .start();
 
-        createClientApi(raftNode, config, logStore, replicationClient);
+        createClientApi(raftNode, config, logStore, stateMachine);
 
         raftNode.start();
 
         grpcServer.awaitTermination();
     }
 
-    private static void createClientApi(RaftNode raftNode, NodeConfig config, LogStore logStore, ReplicationClient replicationClient) {
+    private static void createClientApi(RaftNode raftNode, NodeConfig config, LogStore logStore, StateMachine stateMachine) {
         Javalin app = Javalin.create();
-        new HttpApi(raftNode, config, logStore, replicationClient).register(app);
+        new HttpApi(raftNode, config, logStore, stateMachine).register(app);
         app.start(HTTP_PORT);
     }
 }

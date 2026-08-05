@@ -1,10 +1,10 @@
 package ua.vk.ucu.dads.it;
 
+import com.github.dockerjava.api.DockerClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
-import ua.vk.ucu.dads.log.LogEntry;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -15,11 +15,12 @@ import java.util.Map;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReplicationIT extends RaftContainerSupport {
 
-    protected record LogResponse(int nodeId, int currentTerm, String status, List<LogEntry> log) {
+    protected record StateMachineResponse(int nodeId, String status, int commitIndex, int lastApplied, Map<String, Integer> state) {
     }
 
     private static final int NODE1_ID = 1;
@@ -61,21 +62,18 @@ class ReplicationIT extends RaftContainerSupport {
     }
 
     @Test
-    void messagePostedToLeaderReplicatesToAllNodes() throws Exception {
+    void commandsCommitAndReplicateStateMachineAcrossCluster() throws Exception {
         StateResponse leaderState = awaitSingleLeader(allNodes, 0);
         GenericContainer<?> leader = containerForNodeId(leaderState.nodeId());
 
-        String messageText = "hello-raft-" + System.currentTimeMillis();
-        HttpRequest post = HttpRequest.newBuilder(URI.create(baseUrl(leader) + "/log"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"" + messageText + "\"}"))
-                .build();
-        HttpResponse<String> response = HTTP.send(post, HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, response.statusCode());
+        assertEquals(200, postCommand(leader, "x", "SET", 5).statusCode());
+        HttpResponse<String> addResponse = postCommand(leader, "x", "ADD", 2);
+        assertEquals(200, addResponse.statusCode());
+        assertTrue(addResponse.body().contains("\"value\":7"));
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
             for (GenericContainer<?> node : allNodes) {
-                assertTrue(getLog(node).stream().anyMatch(e -> e.message().equals(messageText)));
+                assertEquals(Integer.valueOf(7), getStateMachine(node).state().get("x"));
             }
         });
     }
@@ -86,11 +84,7 @@ class ReplicationIT extends RaftContainerSupport {
         GenericContainer<?> leader = containerForNodeId(leaderState.nodeId());
         GenericContainer<?> nonLeader = allNodes.stream().filter(n -> n != leader).findFirst().orElseThrow();
 
-        HttpRequest post = HttpRequest.newBuilder(URI.create(baseUrl(nonLeader) + "/log"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"should-not-replicate\"}"))
-                .build();
-        HttpResponse<String> response = HTTP.send(post, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = postCommand(nonLeader, "y", "SET", 1);
 
         assertEquals(409, response.statusCode());
         assertTrue(response.body().contains("redirect"));
@@ -98,10 +92,59 @@ class ReplicationIT extends RaftContainerSupport {
         assertTrue(response.body().contains(expectedLeaderUrl));
     }
 
-    private static List<LogEntry> getLog(GenericContainer<?> node) throws Exception {
-        HttpRequest get = HttpRequest.newBuilder(URI.create(baseUrl(node) + "/log")).GET().build();
+    @Test
+    void addOnUnknownKeyReturnsErrorAndDoesNotMutateAnyReplica() throws Exception {
+        StateResponse leaderState = awaitSingleLeader(allNodes, 0);
+        GenericContainer<?> leader = containerForNodeId(leaderState.nodeId());
+
+        HttpResponse<String> response = postCommand(leader, "never-set", "ADD", 1);
+
+        assertEquals(400, response.statusCode());
+        assertTrue(response.body().contains("error"));
+
+        // The POST already waited for commit+apply on the leader; give the (harmless, since it
+        // failed deterministically everywhere) replication a moment to reach the followers too.
+        Thread.sleep(500);
+        for (GenericContainer<?> node : allNodes) {
+            assertFalse(getStateMachine(node).state().containsKey("never-set"));
+        }
+    }
+
+    @Test
+    void pausedFollowerCatchesUpAfterResume() throws Exception {
+        StateResponse leaderState = awaitSingleLeader(allNodes, 0);
+        GenericContainer<?> leader = containerForNodeId(leaderState.nodeId());
+        GenericContainer<?> follower = allNodes.stream().filter(n -> n != leader).findFirst().orElseThrow();
+
+        DockerClient dockerClient = follower.getDockerClient();
+        dockerClient.pauseContainerCmd(follower.getContainerId()).exec();
+        try {
+            // Leader + the one remaining live follower is still a majority, so these commit
+            // even though `follower` cannot acknowledge anything while paused.
+            assertEquals(200, postCommand(leader, "z", "SET", 1).statusCode());
+            assertEquals(200, postCommand(leader, "z", "ADD", 1).statusCode());
+            assertEquals(200, postCommand(leader, "z", "ADD", 1).statusCode());
+        } finally {
+            dockerClient.unpauseContainerCmd(follower.getContainerId()).exec();
+        }
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                assertEquals(Integer.valueOf(3), getStateMachine(follower).state().get("z")));
+    }
+
+    private static HttpResponse<String> postCommand(GenericContainer<?> node, String key, String action, int value) throws Exception {
+        String body = String.format("{\"key\":\"%s\",\"action\":\"%s\",\"value\":%d}", key, action, value);
+        HttpRequest post = HttpRequest.newBuilder(URI.create(baseUrl(node) + "/command"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        return HTTP.send(post, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static StateMachineResponse getStateMachine(GenericContainer<?> node) throws Exception {
+        HttpRequest get = HttpRequest.newBuilder(URI.create(baseUrl(node) + "/state-machine")).GET().build();
         HttpResponse<String> resp = HTTP.send(get, HttpResponse.BodyHandlers.ofString());
-        return MAPPER.readValue(resp.body(), LogResponse.class).log();
+        return MAPPER.readValue(resp.body(), StateMachineResponse.class);
     }
 
     private static GenericContainer<?> containerForNodeId(int nodeId) {

@@ -14,7 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public class ReplicationClient implements PeerRpcClient {
-    private static final long RPC_DEADLINE_MS = 100;
+    private static final long VOTE_DEADLINE_MS = 100;
+    private static final long APPEND_ENTRIES_DEADLINE_MS = 250;
 
     private final Map<Integer, ManagedChannel> channels = new ConcurrentHashMap<>();
     private final Map<Integer, ReplicationServiceGrpc.ReplicationServiceBlockingStub> stubs = new ConcurrentHashMap<>();
@@ -29,34 +30,20 @@ public class ReplicationClient implements PeerRpcClient {
 
     @Override
     public ResponseVoteRPC requestVote(int peerId, RequestVoteRPC request) {
-        return stub(peerId).requestVote(request);
+        return stub(peerId, VOTE_DEADLINE_MS).requestVote(request);
     }
 
     @Override
     public ResponseAppendEntriesRPC appendEntries(int peerId, RequestAppendEntriesRPC request) {
-        return stub(peerId).appendEntries(request);
+        return stub(peerId, APPEND_ENTRIES_DEADLINE_MS).appendEntries(request);
     }
 
-    public void replicateToAllSecondaries(int term, int leaderId, String message) {
-        RequestAppendEntriesRPC.LogEntry entry = RequestAppendEntriesRPC.LogEntry.newBuilder()
-                .setCommand(message)
-                .build();
-        RequestAppendEntriesRPC request = RequestAppendEntriesRPC.newBuilder()
-                .setTerm(term)
-                .setLeaderId(leaderId)
-                .addEntries(entry)
-                .build();
-        for (var stub : stubs.values()) {
-            stub.appendEntries(request);
-        }
-    }
-
-    private ReplicationServiceGrpc.ReplicationServiceBlockingStub stub(int peerId) {
+    private ReplicationServiceGrpc.ReplicationServiceBlockingStub stub(int peerId, long deadlineMs) {
         ReplicationServiceGrpc.ReplicationServiceBlockingStub stub = stubs.get(peerId);
         if (stub == null) {
             throw new IllegalArgumentException("Unknown peer id: " + peerId);
         }
-        return stub.withDeadlineAfter(RPC_DEADLINE_MS, TimeUnit.MILLISECONDS);
+        return stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS);
     }
 
     public void shutdown() {

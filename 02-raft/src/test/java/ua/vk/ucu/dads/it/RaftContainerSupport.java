@@ -1,5 +1,6 @@
 package ua.vk.ucu.dads.it;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.FixedHostPortGenericContainer;
@@ -46,7 +47,10 @@ public abstract class RaftContainerSupport {
     protected static final int GRPC_PORT = 6001;
 
     protected static final HttpClient HTTP = HttpClient.newHttpClient();
-    protected static final ObjectMapper MAPPER = new ObjectMapper();
+    // Ignore unknown JSON properties so response records here don't need to track every field
+    // RaftNode's ServerState/JSON endpoints happen to expose (e.g. commitIndex, lastApplied).
+    protected static final ObjectMapper MAPPER = new ObjectMapper()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     private static final ImageFromDockerfile IMAGE = new ImageFromDockerfile(IMAGE_NAME, false)
             .withFileFromPath("pom.xml", Paths.get("pom.xml"))

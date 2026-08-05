@@ -22,12 +22,24 @@ message ResponseVoteRPC {
     bool voteGranted = 2;
 }
 
-message RequestAppendEntriesRPC {
-    message LogEntry {
-        int32 term = 1;
-        string command = 2;
+message Command {
+    enum Action {
+        SET = 0;
+        ADD = 1;
+        SUBTRACT = 2;
     }
 
+    string key = 1;
+    Action action = 2;
+    int32 value = 3;
+}
+
+message LogEntry {
+    int32 term = 1;
+    Command command = 2;
+}
+
+message RequestAppendEntriesRPC {
     int32 term = 1;
     int32 leaderId = 2;
     int32 prevLogIndex = 3;
