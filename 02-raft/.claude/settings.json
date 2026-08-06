@@ -67,7 +67,18 @@
       "Bash(rsync -a --exclude target /workspaces/ucu-de-distributed-algorithms-hw/02-raft/ /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/1b1a488c-04d0-4796-b155-147f0606f23c/scratchpad/build-copy/)",
       "Bash(export TESTCONTAINERS_RYUK_DISABLED=true)",
       "Bash(cd /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/1b1a488c-04d0-4796-b155-147f0606f23c/scratchpad/build-copy)",
-      "Bash(cp /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/test/java/ua/vk/ucu/dads/it/ReplicationIT.java /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/1b1a488c-04d0-4796-b155-147f0606f23c/scratchpad/build-copy/src/test/java/ua/vk/ucu/dads/it/ReplicationIT.java)"
+      "Bash(cp /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/test/java/ua/vk/ucu/dads/it/ReplicationIT.java /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/1b1a488c-04d0-4796-b155-147f0606f23c/scratchpad/build-copy/src/test/java/ua/vk/ucu/dads/it/ReplicationIT.java)",
+      "Bash(mvn clean *)",
+      "Bash(mkdir -p /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/79d9bf71-629c-40fc-b31e-bd564ebeaca8/scratchpad/build-copy)",
+      "Bash(rsync -a --exclude target /workspaces/ucu-de-distributed-algorithms-hw/02-raft/ /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/79d9bf71-629c-40fc-b31e-bd564ebeaca8/scratchpad/build-copy/)",
+      "Bash(mvn -o clean verify)",
+      "Bash(xargs ls)",
+      "Bash(mvn -o failsafe:integration-test -Dit.test=ReplicationIT)",
+      "Bash(mvn -o clean package -q)",
+      "Bash(tail -60 /tmp/claude-1000/poll_fail_4.log)",
+      "Read(//tmp/claude-1000/**)",
+      "Bash(mvn -o clean package -q -DskipTests)",
+      "Bash(mvn -o failsafe:integration-test -Dit.test=ReplicationIT#pausedFollowerCatchesUpAfterResume)"
     ]
   }
 }

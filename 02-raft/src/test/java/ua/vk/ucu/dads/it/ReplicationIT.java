@@ -120,16 +120,45 @@ class ReplicationIT extends RaftContainerSupport {
         dockerClient.pauseContainerCmd(follower.getContainerId()).exec();
         try {
             // Leader + the one remaining live follower is still a majority, so these commit
-            // even though `follower` cannot acknowledge anything while paused.
-            assertEquals(200, postCommand(leader, "z", "SET", 1).statusCode());
-            assertEquals(200, postCommand(leader, "z", "ADD", 1).statusCode());
-            assertEquals(200, postCommand(leader, "z", "ADD", 1).statusCode());
+            // even though `follower` cannot acknowledge anything while paused. `leader` was
+            // resolved a moment ago and, under load, may have since stepped down in a
+            // legitimate election unrelated to the pause above - follow the 409 redirect like
+            // a real client would rather than assume that snapshot is still current.
+            assertEquals(200, postCommandFollowingLeader(leader, "z", "SET", 1).statusCode());
+            assertEquals(200, postCommandFollowingLeader(leader, "z", "ADD", 1).statusCode());
+            assertEquals(200, postCommandFollowingLeader(leader, "z", "ADD", 1).statusCode());
         } finally {
             dockerClient.unpauseContainerCmd(follower.getContainerId()).exec();
         }
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertEquals(Integer.valueOf(3), getStateMachine(follower).state().get("z")));
+    }
+
+    protected record RedirectResponse(String status, Integer leaderId) {
+    }
+
+    /**
+     * Like {@link #postCommand}, but follows a 409's leader redirect instead of assuming
+     * {@code node} is still leader - under load the cluster can flap through a few elections in
+     * a row, so this keeps following redirects/retrying against a time budget rather than a
+     * fixed attempt count.
+     */
+    private static HttpResponse<String> postCommandFollowingLeader(GenericContainer<?> node, String key, String action, int value) throws Exception {
+        GenericContainer<?> target = node;
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (true) {
+            HttpResponse<String> response = postCommand(target, key, action, value);
+            if (response.statusCode() != 409 || System.nanoTime() >= deadline) {
+                return response;
+            }
+            RedirectResponse redirect = MAPPER.readValue(response.body(), RedirectResponse.class);
+            if (redirect.leaderId() == null) {
+                Thread.sleep(50);
+                continue;
+            }
+            target = containerForNodeId(redirect.leaderId());
+        }
     }
 
     private static HttpResponse<String> postCommand(GenericContainer<?> node, String key, String action, int value) throws Exception {
