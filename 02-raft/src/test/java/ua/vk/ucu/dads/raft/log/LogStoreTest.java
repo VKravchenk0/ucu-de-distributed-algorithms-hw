@@ -1,6 +1,9 @@
-package ua.vk.ucu.dads.log;
+package ua.vk.ucu.dads.raft.log;
 
 import org.junit.jupiter.api.Test;
+
+import ua.vk.ucu.dads.raft.log.LogEntry;
+import ua.vk.ucu.dads.raft.log.LogStore;
 import ua.vk.ucu.dads.statemachine.Command;
 
 import java.util.List;

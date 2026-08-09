@@ -1,7 +1,7 @@
 package ua.vk.ucu.dads.replication;
 
 import ua.vk.ucu.dads.grpc.Command;
-import ua.vk.ucu.dads.log.LogEntry;
+import ua.vk.ucu.dads.raft.log.LogEntry;
 import ua.vk.ucu.dads.statemachine.UnknownKeyException;
 
 import java.util.List;

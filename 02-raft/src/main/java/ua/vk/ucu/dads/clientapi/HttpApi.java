@@ -2,11 +2,11 @@ package ua.vk.ucu.dads.clientapi;
 
 import io.javalin.Javalin;
 import ua.vk.ucu.dads.config.NodeConfig;
-import ua.vk.ucu.dads.log.LogEntry;
-import ua.vk.ucu.dads.log.LogStore;
 import ua.vk.ucu.dads.raft.CommandResult;
 import ua.vk.ucu.dads.raft.RaftNode;
 import ua.vk.ucu.dads.raft.ServerState;
+import ua.vk.ucu.dads.raft.log.LogEntry;
+import ua.vk.ucu.dads.raft.log.LogStore;
 import ua.vk.ucu.dads.statemachine.Command;
 import ua.vk.ucu.dads.statemachine.StateMachine;
 

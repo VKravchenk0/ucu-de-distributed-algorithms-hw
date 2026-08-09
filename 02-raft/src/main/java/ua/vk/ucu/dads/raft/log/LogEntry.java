@@ -1,4 +1,4 @@
-package ua.vk.ucu.dads.log;
+package ua.vk.ucu.dads.raft.log;
 
 import ua.vk.ucu.dads.statemachine.Command;
 
