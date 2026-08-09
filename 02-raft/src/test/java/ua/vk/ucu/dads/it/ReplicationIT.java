@@ -6,8 +6,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 
-import java.net.URI;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
@@ -19,9 +17,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReplicationIT extends RaftContainerSupport {
-
-    protected record StateMachineResponse(int nodeId, String status, int commitIndex, int lastApplied, Map<String, Integer> state) {
-    }
 
     private static final int NODE1_ID = 1;
     private static final int NODE2_ID = 2;
@@ -124,56 +119,15 @@ class ReplicationIT extends RaftContainerSupport {
             // resolved a moment ago and, under load, may have since stepped down in a
             // legitimate election unrelated to the pause above - follow the 409 redirect like
             // a real client would rather than assume that snapshot is still current.
-            assertEquals(200, postCommandFollowingLeader(leader, "z", "SET", 1).statusCode());
-            assertEquals(200, postCommandFollowingLeader(leader, "z", "ADD", 1).statusCode());
-            assertEquals(200, postCommandFollowingLeader(leader, "z", "ADD", 1).statusCode());
+            assertEquals(200, postCommandFollowingLeader(ReplicationIT::containerForNodeId, leader, "z", "SET", 1).statusCode());
+            assertEquals(200, postCommandFollowingLeader(ReplicationIT::containerForNodeId, leader, "z", "ADD", 1).statusCode());
+            assertEquals(200, postCommandFollowingLeader(ReplicationIT::containerForNodeId, leader, "z", "ADD", 1).statusCode());
         } finally {
             dockerClient.unpauseContainerCmd(follower.getContainerId()).exec();
         }
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertEquals(Integer.valueOf(3), getStateMachine(follower).state().get("z")));
-    }
-
-    protected record RedirectResponse(String status, Integer leaderId) {
-    }
-
-    /**
-     * Like {@link #postCommand}, but follows a 409's leader redirect instead of assuming
-     * {@code node} is still leader - under load the cluster can flap through a few elections in
-     * a row, so this keeps following redirects/retrying against a time budget rather than a
-     * fixed attempt count.
-     */
-    private static HttpResponse<String> postCommandFollowingLeader(GenericContainer<?> node, String key, String action, int value) throws Exception {
-        GenericContainer<?> target = node;
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (true) {
-            HttpResponse<String> response = postCommand(target, key, action, value);
-            if (response.statusCode() != 409 || System.nanoTime() >= deadline) {
-                return response;
-            }
-            RedirectResponse redirect = MAPPER.readValue(response.body(), RedirectResponse.class);
-            if (redirect.leaderId() == null) {
-                Thread.sleep(50);
-                continue;
-            }
-            target = containerForNodeId(redirect.leaderId());
-        }
-    }
-
-    private static HttpResponse<String> postCommand(GenericContainer<?> node, String key, String action, int value) throws Exception {
-        String body = String.format("{\"key\":\"%s\",\"action\":\"%s\",\"value\":%d}", key, action, value);
-        HttpRequest post = HttpRequest.newBuilder(URI.create(baseUrl(node) + "/command"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-        return HTTP.send(post, HttpResponse.BodyHandlers.ofString());
-    }
-
-    private static StateMachineResponse getStateMachine(GenericContainer<?> node) throws Exception {
-        HttpRequest get = HttpRequest.newBuilder(URI.create(baseUrl(node) + "/state-machine")).GET().build();
-        HttpResponse<String> resp = HTTP.send(get, HttpResponse.BodyHandlers.ofString());
-        return MAPPER.readValue(resp.body(), StateMachineResponse.class);
     }
 
     private static GenericContainer<?> containerForNodeId(int nodeId) {

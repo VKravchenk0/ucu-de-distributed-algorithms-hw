@@ -78,7 +78,23 @@
       "Bash(tail -60 /tmp/claude-1000/poll_fail_4.log)",
       "Read(//tmp/claude-1000/**)",
       "Bash(mvn -o clean package -q -DskipTests)",
-      "Bash(mvn -o failsafe:integration-test -Dit.test=ReplicationIT#pausedFollowerCatchesUpAfterResume)"
+      "Bash(mvn -o failsafe:integration-test -Dit.test=ReplicationIT#pausedFollowerCatchesUpAfterResume)",
+      "Bash(rsync -a --exclude target --exclude .git /workspaces/ucu-de-distributed-algorithms-hw/02-raft/ /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/41f6d820-6ee3-47c5-8f9a-5d3d993fb181/scratchpad/raft-verify/)",
+      "Bash(mvn -q test-compile)",
+      "Bash(mvn -o verify -DskipUTs=true -Dtest='none' -DfailIfNoTests=false -Dit.test=LogReconciliationIT)",
+      "Bash(mvn -o verify -DskipTests=false -Dsurefire.skip=true -Dmaven.test.skip.exec=false -DskipSurefire=true -Dit.test=LogReconciliationIT -Dsurefire.failIfNoSpecifiedTests=false -Dtest=none)",
+      "Bash(cp src/main/java/ua/vk/ucu/dads/raft/RaftNode.java /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/41f6d820-6ee3-47c5-8f9a-5d3d993fb181/scratchpad/RaftNode.java.bak)",
+      "Bash(python3 -)",
+      "Bash(mvn -o verify -Dsurefire.failIfNoSpecifiedTests=false -Dtest=none -Dit.test=LogReconciliationIT)",
+      "Bash(docker image *)",
+      "Bash(javap -c -p ua/vk/ucu/dads/raft/RaftNode.class)",
+      "Bash(cp /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/41f6d820-6ee3-47c5-8f9a-5d3d993fb181/scratchpad/RaftNode.java.bak src/main/java/ua/vk/ucu/dads/raft/RaftNode.java)",
+      "Bash(cp /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/test/java/ua/vk/ucu/dads/it/LogReconciliationIT.java src/test/java/ua/vk/ucu/dads/it/LogReconciliationIT.java)",
+      "Bash(rsync -a --exclude target --exclude .git /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/ src/)",
+      "Bash(mvn -o -q test-compile)",
+      "Bash(python3 -c ' *)",
+      "Bash(cp /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/main/java/ua/vk/ucu/dads/raft/RaftNode.java src/main/java/ua/vk/ucu/dads/raft/RaftNode.java)",
+      "Bash(rsync -a /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/ src/)"
     ]
   }
 }
