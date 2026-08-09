@@ -187,6 +187,23 @@ public abstract class RaftContainerSupport {
         }
     }
 
+    /**
+     * Freezes {@code nodes} with {@code docker pause} - the stand-in for a network partition.
+     * Deliberately not {@code stop}: a restarted node would come back with in-memory state reset
+     * to term 0 and an empty log, which trivially bypasses most of what these tests check.
+     */
+    protected static void pause(List<GenericContainer<?>> nodes) {
+        for (GenericContainer<?> node : nodes) {
+            node.getDockerClient().pauseContainerCmd(node.getContainerId()).exec();
+        }
+    }
+
+    protected static void unpause(List<GenericContainer<?>> nodes) {
+        for (GenericContainer<?> node : nodes) {
+            node.getDockerClient().unpauseContainerCmd(node.getContainerId()).exec();
+        }
+    }
+
     /** Polls {@code nodes} until exactly one reports LEADER with a term strictly greater than {@code mustExceedTerm}. */
     protected static StateResponse awaitSingleLeader(List<GenericContainer<?>> nodes, int mustExceedTerm) {
         AtomicReference<StateResponse> leader = new AtomicReference<>();

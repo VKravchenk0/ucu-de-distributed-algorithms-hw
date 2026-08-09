@@ -1,6 +1,5 @@
 package ua.vk.ucu.dads.it;
 
-import com.github.dockerjava.api.DockerClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -181,20 +180,6 @@ class LogReconciliationIT extends RaftContainerSupport {
 
     private static List<String> keysOf(LogResponse log) {
         return log.log().stream().map(entry -> entry.command().key()).toList();
-    }
-
-    private static void pause(List<GenericContainer<?>> nodes) {
-        for (GenericContainer<?> node : nodes) {
-            DockerClient docker = node.getDockerClient();
-            docker.pauseContainerCmd(node.getContainerId()).exec();
-        }
-    }
-
-    private static void unpause(List<GenericContainer<?>> nodes) {
-        for (GenericContainer<?> node : nodes) {
-            DockerClient docker = node.getDockerClient();
-            docker.unpauseContainerCmd(node.getContainerId()).exec();
-        }
     }
 
     /** The `PEERS` value for {@code nodeId}: every other node in the cluster. */

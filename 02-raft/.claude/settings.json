@@ -94,7 +94,13 @@
       "Bash(mvn -o -q test-compile)",
       "Bash(python3 -c ' *)",
       "Bash(cp /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/main/java/ua/vk/ucu/dads/raft/RaftNode.java src/main/java/ua/vk/ucu/dads/raft/RaftNode.java)",
-      "Bash(rsync -a /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/ src/)"
+      "Bash(rsync -a /workspaces/ucu-de-distributed-algorithms-hw/02-raft/src/ src/)",
+      "Bash(mkdir -p /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/fc6dd643-b413-457c-b836-26fee18b20f2/scratchpad/build-copy)",
+      "Bash(rsync -a --delete --exclude target /workspaces/ucu-de-distributed-algorithms-hw/02-raft/ /tmp/claude-1000/-workspaces-ucu-de-distributed-algorithms-hw-02-raft/fc6dd643-b413-457c-b836-26fee18b20f2/scratchpad/build-copy/)",
+      "Bash(TESTCONTAINERS_RYUK_DISABLED=true mvn -o -q verify -Dit.test=MainTestIT -DfailIfNoSpecifiedTests=false)",
+      "Bash(TESTCONTAINERS_RYUK_DISABLED=true mvn -o -q verify)",
+      "Bash(git mv *)",
+      "Bash(TESTCONTAINERS_RYUK_DISABLED=true mvn -o -q verify -Dit.test=AcceptanceTestIT -DfailIfNoSpecifiedTests=false)"
     ]
   }
 }
