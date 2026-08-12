@@ -6,9 +6,7 @@ import ua.vk.ucu.dads.grpc.ResponseAppendEntriesRPC;
 import ua.vk.ucu.dads.grpc.ResponseVoteRPC;
 
 /**
- * Outbound RPCs to a single peer, addressed by node id. Implementations are expected to throw
- * an unchecked exception (timeout, unreachable, etc.) on failure - callers treat any exception
- * as "peer unreachable this round, ignore, retry next timer tick".
+ * Outbound RPCs to a single peer, addressed by node id
  */
 public interface PeerRpcClient {
     ResponseVoteRPC requestVote(int peerId, RequestVoteRPC request);

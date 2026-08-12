@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ReplicationIT extends RaftContainerSupport {
+class ReplicationIT extends RaftTestSupport {
 
     private static final int NODE1_ID = 1;
     private static final int NODE2_ID = 2;
@@ -97,8 +97,7 @@ class ReplicationIT extends RaftContainerSupport {
         assertEquals(400, response.statusCode());
         assertTrue(response.body().contains("error"));
 
-        // The POST already waited for commit+apply on the leader; give the (harmless, since it
-        // failed deterministically everywhere) replication a moment to reach the followers too.
+        // The POST already waited for commit+apply on the leader; give the replication a moment to reach the followers too.
         Thread.sleep(500);
         for (GenericContainer<?> node : allNodes) {
             assertFalse(getStateMachine(node).state().containsKey("never-set"));
@@ -126,8 +125,14 @@ class ReplicationIT extends RaftContainerSupport {
             dockerClient.unpauseContainerCmd(follower.getContainerId()).exec();
         }
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                assertEquals(Integer.valueOf(3), getStateMachine(follower).state().get("z")));
+        await()
+            .atMost(Duration.ofSeconds(20))
+            .untilAsserted(() ->
+                assertEquals(
+                    Integer.valueOf(3), 
+                    getStateMachine(follower).state().get("z")
+                )
+            );
     }
 
     private static GenericContainer<?> containerForNodeId(int nodeId) {

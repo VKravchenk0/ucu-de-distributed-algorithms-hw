@@ -33,7 +33,6 @@ public class HttpApi {
         this.stateMachine = stateMachine;
     }
 
-    /** Body of {@code POST /command}. */
     public record CommandRequest(String key, String action, int value) {
     }
 

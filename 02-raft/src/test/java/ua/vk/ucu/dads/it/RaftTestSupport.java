@@ -22,28 +22,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.testcontainers.containers.wait.strategy.Wait.forHttp;
 
-/**
- * Two networking quirks of this sandboxed devcontainer, verified by hand before landing on
- * this design: (1) ports published from a container on a Testcontainers-managed custom
- * {@code Network} are not reachable from the test JVM (even plain nginx wasn't reachable
- * there), so nodes stay on the default bridge network. (2) Even on the default bridge, only
- * explicitly-fixed host ports are reachable - Docker's normal dynamically-assigned host ports
- * are not, seemingly because this sandbox's outer port-forwarding only registers ports it sees
- * requested explicitly. Hence {@link FixedHostPortGenericContainer} instead of plain
- * {@code withExposedPorts}.
- *
- * <p>Raft peer discovery is fully symmetric (every node needs every other node's address at
- * boot), unlike the old hub-and-spoke master/secondary model where only the master needed to
- * know secondary addresses. That rules out addressing peers by their bridge-network IP, since
- * a container's IP isn't known until it starts, and a static peer list would need every node's
- * address before any node starts. Instead, each node fixes both its HTTP and gRPC ports to
- * host ports chosen up front by the test ({@link #newRaftNode}), and peers address each other
- * via the Docker bridge gateway IP plus the peer's fixed host port ({@link #bridgeGatewayIp()})
- * - the same "reach a container via an explicitly-fixed host port" mechanism already proven to
- * work in this sandbox for quirk (2) above, just used container-to-container instead of from
- * the test JVM.
- */
-public abstract class RaftContainerSupport {
+public abstract class RaftTestSupport {
     protected static final String IMAGE_NAME = "raft-node:test";
     protected static final int HTTP_PORT = 7000;
     protected static final int GRPC_PORT = 6001;
@@ -163,8 +142,7 @@ public abstract class RaftContainerSupport {
 
     /**
      * Like {@link #postCommand}, but follows a 409's leader redirect instead of assuming
-     * {@code preferred} is still leader - a cluster under load can flap through an election
-     * between the moment a test resolves the leader and the moment it posts. Keeps following
+     * {@code preferred} is still leader. Keeps following
      * redirects against a time budget rather than a fixed attempt count. {@code byNodeId} maps a
      * redirect's leaderId back to its container, since only the test knows its own topology.
      */
@@ -187,11 +165,6 @@ public abstract class RaftContainerSupport {
         }
     }
 
-    /**
-     * Freezes {@code nodes} with {@code docker pause} - the stand-in for a network partition.
-     * Deliberately not {@code stop}: a restarted node would come back with in-memory state reset
-     * to term 0 and an empty log, which trivially bypasses most of what these tests check.
-     */
     protected static void pause(List<GenericContainer<?>> nodes) {
         for (GenericContainer<?> node : nodes) {
             node.getDockerClient().pauseContainerCmd(node.getContainerId()).exec();
@@ -208,7 +181,7 @@ public abstract class RaftContainerSupport {
     protected static StateResponse awaitSingleLeader(List<GenericContainer<?>> nodes, int mustExceedTerm) {
         AtomicReference<StateResponse> leader = new AtomicReference<>();
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            List<StateResponse> states = nodes.stream().map(RaftContainerSupport::state).toList();
+            List<StateResponse> states = nodes.stream().map(RaftTestSupport::state).toList();
             List<StateResponse> leaders = states.stream()
                     .filter(s -> "LEADER".equals(s.status()))
                     .filter(s -> s.currentTerm() > mustExceedTerm)

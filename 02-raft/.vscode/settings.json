@@ -3,5 +3,6 @@
     "env": {
       "TESTCONTAINERS_RYUK_DISABLED": "true"
     }
-  }
+  },
+  "java.compile.nullAnalysis.mode": "automatic"
 }

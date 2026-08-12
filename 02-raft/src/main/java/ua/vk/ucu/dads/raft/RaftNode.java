@@ -32,11 +32,7 @@ import java.util.concurrent.TimeoutException;
 /**
  * Owns all Raft state (currentTerm, votedFor, status, currentLeaderId, log, commitIndex,
  * lastApplied, and - while leader - nextIndex/matchIndex per peer). All mutations happen on a
- * single-threaded "event loop" executor, so no locking is needed - the event loop is the single
- * writer by construction. Inbound RPC handlers submit work to the event loop and block for the
- * result; outbound RPC fan-out (RequestVote during an election, AppendEntries for heartbeats and
- * replication) runs on a separate pool of virtual threads so a slow/dead peer never stalls the
- * event loop, with result processing resubmitted back onto the event loop.
+ * single-threaded "event loop" executor.
  */
 public class RaftNode {
     private static final int ELECTION_TIMEOUT_MIN_MS = 150;
@@ -65,11 +61,14 @@ public class RaftNode {
 
     private int commitIndex = 0;
     private int lastApplied = 0;
+
     // Leader-only volatile state, reinitialized in becomeLeader().
     private final Map<Integer, Integer> nextIndex = new HashMap<>();
     private final Map<Integer, Integer> matchIndex = new HashMap<>();
+
     // Peers with an AppendEntries RPC currently in flight - prevents piling up requests behind a slow peer.
     private final Set<Integer> inFlight = new HashSet<>();
+
     // Client futures waiting on the entry at a given log index being committed and applied.
     private final Map<Integer, CompletableFuture<CommandResult>> pendingClients = new HashMap<>();
 
@@ -237,7 +236,7 @@ public class RaftNode {
             return;
         }
         if (!inFlight.add(peerId)) {
-            return; // an AppendEntries RPC to this peer is already outstanding
+            return;
         }
         int roundTerm = currentTerm;
         int next = nextIndex.getOrDefault(peerId, logStore.lastIndex() + 1);
@@ -295,7 +294,7 @@ public class RaftNode {
         }
     }
 
-    /** Advances commitIndex to the highest index replicated on a majority, from the current term only (§5.4.2). */
+    /** Advances commitIndex to the highest index replicated on a majority, from the current term only */
     private void advanceCommitIndex() {
         if (status != ServerStatus.LEADER) {
             return;
@@ -317,7 +316,6 @@ public class RaftNode {
         }
     }
 
-    /** Applies newly committed entries to the state machine, in order, and resolves any waiting client futures. */
     private void applyCommitted() {
         while (lastApplied < commitIndex) {
             lastApplied++;
@@ -378,7 +376,7 @@ public class RaftNode {
         return ResponseVoteRPC.newBuilder().setTerm(currentTerm).setVoteGranted(granted).build();
     }
 
-    /** Election restriction (§5.4.1): grant a vote only to a candidate whose log is at least as up to date as ours. */
+    /** Election restriction: grant a vote only to a candidate whose log is at least as up to date as ours. */
     private boolean isLogUpToDate(int candidateLastLogTerm, int candidateLastLogIndex) {
         int ourLastTerm = logStore.lastTerm();
         int ourLastIndex = logStore.lastIndex();

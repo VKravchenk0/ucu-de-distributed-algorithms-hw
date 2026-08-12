@@ -5,10 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * A simple in-memory key/value state machine. {@link #apply} is invoked exclusively from the
- * {@code RaftNode} event loop as committed entries are applied, in log order, so mutation itself
- * needs no locking; methods are synchronized only so {@link #snapshot()} - called from HTTP
- * handler threads for the debug endpoint - sees a consistent view.
+ * A simple in-memory key/value state machine.
  */
 public class StateMachine {
     private final Map<String, Integer> values = new HashMap<>();

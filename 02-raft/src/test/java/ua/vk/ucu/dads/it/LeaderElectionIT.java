@@ -12,13 +12,12 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Exercises election + failover: a 3-node cluster elects a single leader, the leader is
- * paused (not stopped - a restart would reset in-memory currentTerm to 0 and trivially bypass
- * the step-down logic under test) so the remaining majority (2 of 3) elects a new leader at a
+ * Tests election + failover: a 3-node cluster elects a single leader, the leader is
+ * paused so the remaining majority elects a new leader at a
  * higher term, then the old leader is unpaused and must recognize the new leader and step down,
  * leaving exactly one leader again.
  */
-class LeaderElectionIT extends RaftContainerSupport {
+class LeaderElectionIT extends RaftTestSupport {
 
     private static final int NODE1_ID = 1;
     private static final int NODE2_ID = 2;
