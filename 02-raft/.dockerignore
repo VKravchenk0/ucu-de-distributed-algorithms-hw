@@ -1,0 +1,7 @@
+target/
+.git/
+.devcontainer/
+.claude/
+.mcp.json
+*.md
+.gitignore
