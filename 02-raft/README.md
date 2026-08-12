@@ -11,6 +11,17 @@
 - Відсутнє додавання нових нод до кластеру
 - Відсутній log compaction/snapshotting
 
+## Зміст
+- [1. Quickstart](#1-quickstart)
+- [2. Опис рішення](#2-опис-рішення)
+  - [2.1 Загальна архітектура](#21-загальна-архітектура)
+  - [2.2 Модель concurrency - event loop](#22-модель-concurrency---event-loop)
+  - [2.3 Конфігурація](#23-конфігурація)
+  - [2.4 Структура коду](#24-структура-коду)
+  - [2.5 Точки входу](#25-точки-входу)
+    - [2.5.1 Leader election](#251-leader-election)
+    - [2.5.2 Log replication](#252-log-replication)
+
 ## 1. Quickstart
 Проєкт доступний до запуску в [dev-контейнері](https://containers.dev/). 
 
@@ -41,10 +52,10 @@ mvn verify    # інтеграційні тести (потрібен docker dae
 
 ### 2.2 Модель concurrency - event loop
 `RaftNode` володіє всім станом Raft і змінює його виключно в однопотоковому `ScheduledExecutorService` -
-[RaftNode.java:54](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L54).
+[RaftNode.java:50](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L50).
 
 * **Вхідні RPC** (`handleRequestVote` / `handleAppendEntries`) передаються в event loop потоком обробника gRPC, який блокуюче обробляться з таймаутом в 500мс
-  ([RaftNode.java:129-138](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L129-L138)).
+  ([RaftNode.java:128-137](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L128-L137)).
 * **Вихідні RPC** виконуються в окремому пулі віртуальних потоків, тому повільна нода
  ніколи не блокує event loop.
 * **Таймери** (таймаут виборів, heartbeat) - це заплановані задачі в тому самому event loop.
@@ -76,13 +87,13 @@ PEERS=2=host2:6001:7000,3=host3:6001:7000      # id=хост:grpcПорт:httpП
 #### 2.5.1 Leader election
 | Метод | Роль |
 | --- | --- |
-| [RaftNode.resetElectionTimer()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L142) | планує таймаут виборів, скасовуючи попередній. Викликається при старті ноди, при наданні голосу та при кожному коректному `AppendEntries`. |
-| [RaftNode.startElectionRound()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L154) | Безпосередньо запускає процес голосування |
-| [RaftNode.handleRequestVoteInternal()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L364) | Точка входу на стороні фоловера - обробляє запити від інших кандидатів |
+| [RaftNode.resetElectionTimer()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L141) | планує таймаут виборів, скасовуючи попередній. Викликається при старті ноди, при наданні голосу та при кожному коректному `AppendEntries`. |
+| [RaftNode.startElectionRound()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L153) | Безпосередньо запускає процес голосування |
+| [RaftNode.handleRequestVoteInternal()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L362) | Точка входу на стороні фоловера - обробляє запити від інших кандидатів |
 
 
 #### 2.5.2 Log replication
 | Метод | Роль |
 | --- | --- |
-| [RaftNode.submitCommand()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L113) | Точка входу на боці лідера: додає запис в лог, ставить клієнтський future на цей запис, реплікує (`replicateToAllPeers()`), потім намагається зробити commit (`advanceCommitIndex()`) та apply (`applyCommitted()`) |
-| [RaftNode.handleAppendEntriesInternal()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L391) | Точка входу на боці фоловера: перевірка консистентності за `prevLogIndex`/`prevLogTerm`; при конфлікті термінів - підчистка логу через `truncateFrom(idx)`. Далі append нового запису, commit і apply. |
+| [RaftNode.submitCommand()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L112) | Точка входу на боці лідера: додає запис в лог, ставить клієнтський future на цей запис, реплікує (`replicateToAllPeers()`), потім намагається зробити commit (`advanceCommitIndex()`) та apply (`applyCommitted()`) |
+| [RaftNode.handleAppendEntriesInternal()](src/main/java/ua/vk/ucu/dads/raft/RaftNode.java#L389) | Точка входу на боці фоловера: перевірка консистентності за `prevLogIndex`/`prevLogTerm`; при конфлікті термінів - підчистка логу через `truncateFrom(idx)`. Далі append нового запису, commit і apply. |
