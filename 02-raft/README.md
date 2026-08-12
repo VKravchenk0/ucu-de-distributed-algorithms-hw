@@ -14,7 +14,7 @@
 ## 1. Quickstart
 Проєкт доступний до запуску в [dev-контейнері](https://containers.dev/). 
 
-Acceptance test, описаний в завданні, як і інші тести, імплементовані у вигляді інтеграційних тестів, в яких ноди підіймаються за допомогою [Testcontainers](https://testcontainers.com/)
+Acceptance test, описаний в завданні, як і інші тести, імплементовані у вигляді інтеграційних тестів, в яких ноди підіймаються за допомогою [Testcontainers](https://testcontainers.com/).
 
 Запуск тестів:
 ```bash
